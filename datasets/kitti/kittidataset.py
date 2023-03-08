@@ -1,17 +1,17 @@
+import glob
 import os.path
 
 import numpy as np
 
 from datasets.base import BaseDataset
-import glob
 
 
 class KittiRawDataset(BaseDataset):
     def __init__(self, data_path,
-             drop_invalid_point_function=None,
-             point_cloud_transform=None,
-             n_points=None,
-             apply_pillarization=True):
+                 drop_invalid_point_function=None,
+                 point_cloud_transform=None,
+                 n_points=None,
+                 apply_pillarization=True):
         super().__init__(drop_invalid_point_function,
                          point_cloud_transform,
                          n_points,
