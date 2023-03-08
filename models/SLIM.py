@@ -16,7 +16,6 @@ class SLIM(pl.LightningModule):
     def __init__(self, config):
         """
         Args:
-            n_pillars_x (int): The number of pillars in the x dimension of the voxel grid.
             config (dict): Config is based on configs from configs/slim.yaml
         """
         super(SLIM, self).__init__()

@@ -22,6 +22,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+
 import os
 import pickle
 
@@ -31,8 +32,7 @@ from torch.utils.data import Dataset
 from datasets.waymoflow.util import get_coordinates_and_features
 
 
-# TODO: tensor operations to make it faster?
-# TODO: check context name to ensure two consecutive frames -> a session should be consecutive
+
 class WaymoDataset(Dataset):
     """
     Waymo Custom Dataset for flow estimation. For a detailed description of each
@@ -45,13 +45,6 @@ class WaymoDataset(Dataset):
                  point_cloud_transform=None,
                  n_points=None,
                  apply_pillarization=True):
-        """
-        Args:
-            data_path (string): Folder with the compressed data.
-            transform (callable, optional): Optional transform to be applied
-                on a sample.
-            n_points (int): Number of maximum points. If None all points will be used
-        """
         super().__init__()
         # Config parameters
         metadata_path = os.path.join(data_path, 'metadata')
