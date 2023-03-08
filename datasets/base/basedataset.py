@@ -35,7 +35,7 @@ class BaseDataset(Dataset):
         Returns:
             - Tuple[t0_frame, t1_frame], where t0_frame is Tuple[pcl, bev_projecticion]
               and t1_frame is Tuple[pcl, bev_projecticion].
-            - flows: in shape [BS, N, 4].
+            - flows: in shape [N, 4].
             - t0_to_t1: transformation matrix from t0 to t1.
 
         """
@@ -78,8 +78,8 @@ class BaseDataset(Dataset):
             index:
 
         Returns:
-            t1_frame: pointcloud in shape [1, N, features]
-            t0_frame: pointcloud in shape [1, N, features]
+            t1_frame: pointcloud in shape [N, features]
+            t0_frame: pointcloud in shape [N, features]
         """
 
         raise NotImplementedError()
@@ -88,7 +88,7 @@ class BaseDataset(Dataset):
         """
         For each dataset should be separetly written. Returns transforamtion from t0 to t1
         Returns:
-            t0_to_t1: in shape [1, 4, 4]
+            t0_to_t1: in shape [4, 4]
         """
         raise NotImplementedError()
 
@@ -101,7 +101,7 @@ class BaseDataset(Dataset):
 
     def _get_flow(self, index):
         """
-        Optional. For each dataset should be separetly written. Returns gt flow in shape [1, N, channels].
+        Optional. For each dataset should be separetly written. Returns gt flow in shape [N, channels].
         """
         return None
 

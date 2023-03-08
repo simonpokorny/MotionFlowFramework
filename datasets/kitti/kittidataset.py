@@ -1,4 +1,9 @@
+import os.path
+
+import numpy as np
+
 from datasets.base import BaseDataset
+import glob
 
 
 class KittiRawDataset(BaseDataset):
@@ -7,7 +12,13 @@ class KittiRawDataset(BaseDataset):
              point_cloud_transform=None,
              n_points=None,
              apply_pillarization=True):
-        super().__init__()
+        super().__init__(drop_invalid_point_function,
+                         point_cloud_transform,
+                         n_points,
+                         apply_pillarization)
+
+        self.files = glob.glob(os.path.join(data_path, "*/*/pairs/*.npz"))
+        self.frame = None
 
     def __len__(self):
         """
@@ -15,7 +26,7 @@ class KittiRawDataset(BaseDataset):
         Returns:
             length of the dataset
         """
-        raise NotImplementedError()
+        return len(self.files)
 
     def _get_point_cloud_pair(self, index):
         """
@@ -24,26 +35,26 @@ class KittiRawDataset(BaseDataset):
             index:
 
         Returns:
-            t1_frame: pointcloud in shape [1, N, features]
-            t0_frame: pointcloud in shape [1, N, features]
+            t1_frame: pointcloud in shape [N, features]
+            t0_frame: pointcloud in shape [N, features]
         """
-
-        raise NotImplementedError()
+        self.frame = np.load(self.files[0])
+        return self.frame['pcl_t1'], self.frame['pcl_t0']
 
     def _get_pose_transform(self, index):
         """
         For each dataset should be separetly written. Returns transforamtion from t0 to t1
         Returns:
-            t0_to_t1: in shape [1, 4, 4]
+            t0_to_t1: in shape [4, 4]
         """
-        raise NotImplementedError()
+        return self.frame['odom_t0_t1']
 
     def _get_global_transform(self, index):
         """
         Optional. For each dataset should be separetly written. Returns transforamtion from t0 to
         global coordinates system.
         """
-        return None
+        return self.frame['global_pose']
 
     def _get_flow(self, index):
         """
