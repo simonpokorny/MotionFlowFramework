@@ -4,9 +4,11 @@ import torch
 import yaml
 from pytorch3d.ops.knn import knn_points
 
+from losses.flow import NN_loss, rigid_cycle_loss
+
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
-from models.utils import init_weights
+from models.utils import init_weights, construct_batched_cuda_grid
 from visualization.plot import plot_2d_point_cloud, plot_tensor, visualise_tensor
 
 VISUALIZATION = False
@@ -338,51 +340,29 @@ class SLIM(pl.LightningModule):
         raw_flow_i = fw_pointwise['dynamic_flow']
         rigid_flow = fw_pointwise['static_aggr_flow']
 
-        fw_raw_flow_nn = knn_points(p_i + raw_flow_i, p_j, lengths1=None, lengths2=None, K=1, norm=1)
-        fw_rigid_flow_nn = knn_points(p_i + rigid_flow, p_j, lengths1=None, lengths2=None, K=1, norm=1)
+        # for BS of one only
+        p_i_flow_lengths = torch.ones(len(p_i), dtype=torch.long) * p_i.shape[1]
+        p_j_lengths = torch.ones(len(p_j), dtype=torch.long) * p_j.shape[1]
+
+        fw_raw_flow_nn, pi_flow_to_pj = NN_loss(p_i + raw_flow_i, p_j, x_lengths=p_i_flow_lengths, y_lengths=p_j_lengths)
+        fw_rigid_flow_nn, rigid_flow_to_pj = NN_loss(p_i + rigid_flow, p_j, x_lengths=p_i_flow_lengths, y_lengths=p_j_lengths)
 
         # todo remove outlier percentage
+        # performed separately?
         cham_x = fw_raw_flow_nn.dists[..., 0] + fw_rigid_flow_nn.dists[..., 0]  # (N, P1)
 
-        # nearest_to_p_j = fw_raw_flow_nn[1]
         nn_loss = cham_x.max()
 
         # Rigid Cycle
-        trans_p_i = torch.cat((p_i, torch.ones((len(p_i), p_i.shape[1], 1), device=p_i.device)), dim=2)
-        bw_fw_trans = bw_trans @ fw_trans - torch.eye(4, device=fw_trans.device)
-        # todo check this in visualization, if the points are transformed as in numpy
-        res_trans = torch.matmul(bw_fw_trans, trans_p_i.permute(0, 2, 1)).norm(dim=1)
+        cycle_loss = rigid_cycle_loss(p_i, fw_trans, bw_trans)
 
-        rigic_cycle_loss = res_trans.mean()
+
 
         # Artificial label loss - for previous time not second
-        def construct_batched_cuda_grid(pts, feature, x_min=-35, y_min=-35, grid_size=640):
-            '''
-            Assumes BS x N x CH (all frames same number of fake pts with zeros in the center)
-            :param pts:
-            :param feature:
-            :param cfg:
-            :return:
-            '''
-            BS = len(pts)
-            bs_ind = torch.cat(
-                [bs_idx * torch.ones(pts.shape[1], dtype=torch.long, device=pts.device) for bs_idx in range(BS)])
 
-            feature_grid = - torch.ones(BS, grid_size, grid_size, device=pts.device).long()
-
-            cell_size = torch.abs(2 * torch.tensor(x_min / grid_size))
-
-            coor_shift = torch.tile(torch.tensor((x_min, y_min), dtype=torch.float, device=pts.device), dims=(BS, 1, 1))
-
-            feature_ind = ((pts[:, :, :2] - coor_shift) / cell_size).long()
-
-            # breakpoint()
-            feature_grid[
-                bs_ind, feature_ind.flatten(0, 1)[:, 0], feature_ind.flatten(0, 1)[:, 1]] = feature.flatten().long()
-
-            return feature_grid
 
         dynamic_states = (fw_raw_flow_nn.dists[..., 0] > fw_rigid_flow_nn.dists[..., 0]) + 1
+        print(self.x_min)
         art_label_grid = construct_batched_cuda_grid(p_i, dynamic_states, x_min=-35, y_min=-35, grid_size=640)
 
         p_i_grid_class = fw_bev['class_logits']
@@ -392,14 +372,14 @@ class SLIM(pl.LightningModule):
         artificial_class_loss = art_CE(p_i_grid_class, art_label_grid)
 
         # y = y[current_frame_masks]
-        loss = 2. * nn_loss + 1. * rigic_cycle_loss + 0.1 * artificial_class_loss
+        loss = 2. * nn_loss + 1. * cycle_loss + 0.1 * artificial_class_loss
         # loss.backward()   # backward probehne
 
         print(
-            f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {rigic_cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
+            f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
 
         self.log(f'{mode}/loss', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/loss', rigic_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/loss', cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f'{mode}/loss', artificial_class_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         metrics = 0
