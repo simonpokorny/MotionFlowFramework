@@ -2,7 +2,7 @@
 
 ## Changes
 
-#### 6.3.
+#### week 6.3.
 - Changed the structure of the project (seems more useful and organized)
 - all hyperparameters of slim are stored in config with description 
 - pytorch3d folder was removed from repo, but added to requirements 
@@ -10,6 +10,12 @@
 - slim decoder is rewritten to more readable format 
 - added optimization and lr changes to slim based on official repo 
 - losses are also added
+
+### week 13.3
+
+- add basedataset and basedatamodule [link](./datasets/base)
+
+
 
 
 ## Todo list
@@ -21,7 +27,7 @@
 #### Simon
 - [x] Udělat todo list na readme :)
 - [ ] Kitti raw daataset
-- [ ] BaseDataset & Base Dataloader
+- [x] BaseDataset & Base Dataloader
 - [ ] Train on raw kitti
 
 
