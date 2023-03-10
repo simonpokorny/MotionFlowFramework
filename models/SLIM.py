@@ -1,9 +1,9 @@
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import yaml
 from pytorch3d.ops.knn import knn_points
 
+from configs.utils import load_config
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
 from models.utils import init_weights
@@ -19,7 +19,9 @@ class SLIM(pl.LightningModule):
             config (dict): Config is based on configs from configs/slim.yaml
         """
         super(SLIM, self).__init__()
+        self.save_hyperparameters()  # Store the constructor parameters into self.hparams
         assert type(config) == dict
+        self.config = config
 
         self.save_hyperparameters()  # Store the constructor parameters into self.hparams
         self.n_pillars_x = config["default"]["n_pillars_x"]
@@ -248,8 +250,8 @@ class SLIM(pl.LightningModule):
                     for label in metrics[metric][state]:
                         metrics_dict[f'{phase}/{metric}/{state}/{label}'] = metrics[metric][state][label]
 
-        # Do not log the in depth metrics in the progress bar
-        #self.log(f'{phase}/loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            # Do not log the in depth metrics in the progress bar
+            # self.log(f'{phase}/loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
             self.log_dict(metrics_dict, on_step=True, on_epoch=True, prog_bar=False, logger=True)
 
     def training_step(self, batch, batch_idx):
@@ -295,6 +297,43 @@ class SLIM(pl.LightningModule):
         loss, metrics = self.general_step(batch, batch_idx, phase)
         # Automatically reduces this metric after each epoch
         self.log_metrics(loss, metrics, phase)
+
+    def update_dynamicness_threshold(self):
+        pass
+        """
+        if self.config["decoder"]["artificial_network_config"]["static_logit"] == "net":
+            assert self.config["decoder"]["artificial_network_config"]["dynamic_logit"] == "net"
+
+            #assert "dynamic" in eval_flow_types
+            static_key = "static"
+
+            if self.config["decoder"]["use_static_aggr_flow_for_aggr_flow"]:
+                static_key = "static_aggr"
+            #assert static_key in eval_flow_types
+
+            epes_stat_flow = []
+            epes_dyn_flow = []
+            dynamicness_scores = []
+            for flowdir in ["fw", "bw"]:
+                epes_stat_flow.append(
+                    knn_results[static_key]["%s_knn" % flowdir]["nearest_dist"][masks[flowdir]]
+                )
+                epes_dyn_flow.append(
+                    knn_results["dynamic"]["%s_knn" % flowdir]["nearest_dist"][masks[flowdir]]
+                )
+                dynamicness_scores.append(
+                    predictions[flowdir]["dynamicness"][masks[flowdir]]
+                )
+
+            self.moving_dynamicness_threshold.update(
+                epes_stat_flow=torch.cat(epes_stat_flow, dim=0),
+                epes_dyn_flow=torch.cat(epes_dyn_flow, dim=0),
+                moving_mask=None,
+                dynamicness_scores=torch.cat(dynamicness_scores, dim=0),
+                summaries=summaries,
+                training=training,
+            )
+            """
 
     def general_step(self, batch, batch_idx, mode):
         """
@@ -421,13 +460,8 @@ class SLIM(pl.LightningModule):
 
 
 if __name__ == "__main__":
-
     ### CONFIG ###
-    with open("../configs/slim.yaml", "r") as stream:
-        try:
-            cfg = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
+    cfg = load_config("../configs/slim.yaml")
 
     ### MODEL ####
     model = SLIM(config=cfg)

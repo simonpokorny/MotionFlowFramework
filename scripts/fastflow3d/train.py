@@ -23,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import os
-from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, ArgumentTypeError
 from pathlib import Path
 
 # import pytorch_lightning as pl
@@ -33,12 +33,21 @@ import wandb
 # from pytorch_lightning.loggers import WandbLogger
 # from pytorch_lightning.plugins import DDPPlugin
 
-from data.RandomDataset import RandomDataset
-from data.WaymoDataset import WaymoDataset
-from data import WaymoDataModule
-from data.FlyingThings3DDataModule import FlyingThings3DDataModule
-from models.FastFlow3D.models import FastFlow3DModelScatter
-from utils import str2bool
+from datasets.randomdataset import RandomDataset
+from datasets.waymoflow import WaymoDataset
+from datasets.waymoflow import WaymoDataModule
+from datasets.flyingthings3d.FlyingThings3DDataModule import FlyingThings3DDataModule
+from models.FastFlow3D import FastFlow3DModelScatter
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise ArgumentTypeError('Boolean value expected.')
 
 
 def get_args():

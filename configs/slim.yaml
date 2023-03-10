@@ -6,6 +6,21 @@ default:
   # point_features (int): The number of features in each point of the input point clouds.
   point_features: 8
 
+data:
+  x_min: -35
+  x_max: 35
+  y_min: -35
+  y_max: 35
+  z_min: -10
+  z_max: 10
+  n_pillars_x: 640
+  batch_size: 1
+  has_test: False
+  num_workers: 4
+  n_points: null
+  apply_pillarization: True
+  shuffle_train: True
+
 moving_threshold:
   # unsupervised (bool): Flag indicating if the training is unsupervised or not.
   unsupervised: True
