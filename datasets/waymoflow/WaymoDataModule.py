@@ -131,3 +131,25 @@ class WaymoDataModule(pl.LightningDataModule):
             raise RuntimeError("No test dataset specified. Maybe set has_test=True in DataModule init.")
         return DataLoader(self._test_, self._batch_size, shuffle=False, num_workers=self._num_workers,
                           collate_fn=self._collate_fn)
+
+if __name__ == "__main__":
+    datamodule = WaymoDataModule(dataset_directory="../../data/waymoflow_subset/",
+                                  grid_cell_size=0.109375,
+                                  x_min=-35,
+                                  x_max=35,
+                                  y_min=-35,
+                                  y_max=35,
+                                  z_min=-10,
+                                  z_max=10,
+                                  n_pillars_x=640,
+                                  batch_size=1,
+                                  has_test=False,
+                                  num_workers=1,
+                                  n_points=None,
+                                  apply_pillarization=True,
+                                  shuffle_train=True)
+    datamodule.setup("fit")
+    train_dl = datamodule.train_dataloader()
+    train_ds = datamodule._train_
+    a = train_ds[0]
+    tmp = None

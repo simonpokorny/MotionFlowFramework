@@ -8,8 +8,8 @@ class BaseDataset(Dataset):
     """
 
     def __init__(self, data_path,
-                 drop_invalid_point_function=None,
                  point_cloud_transform=None,
+                 drop_invalid_point_function=None,
                  n_points=None,
                  apply_pillarization=True):
         super().__init__()
@@ -49,7 +49,8 @@ class BaseDataset(Dataset):
 
         # Drop invalid points according to the method supplied
         if self._drop_invalid_point_function is not None:
-            t1_frame, flows = self._drop_invalid_point_function(t1_frame, flows)
+            print(type(t1_frame), type(flows))
+            t1_frame, flows = self._drop_invalid_point_function(t1_frame, None)
             t0_frame, _ = self._drop_invalid_point_function(t0_frame, None)
 
         # Perform the pillarization of the point_cloud

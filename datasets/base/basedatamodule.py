@@ -82,6 +82,8 @@ class BaseDataModule(pl.LightningDataModule):
         :param stage: either 'fit', 'validate', 'test' or 'predict'
         :return: None
         """
+        #print(self._dataset, type(self._dataset))
+        #print(self._dataset_directory, type(self._dataset_directory))
         self._train_ = self._dataset(self._dataset_directory.joinpath("train"),
                                     point_cloud_transform=self._pillarization_transform,
                                     drop_invalid_point_function=self._drop_points_function,

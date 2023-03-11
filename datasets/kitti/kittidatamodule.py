@@ -3,7 +3,7 @@ from datasets.kitti.kittidataset import KittiRawDataset
 
 
 class KittiDataModule(BaseDataModule):
-    def __init__(self, dataset=KittiRawDataset,
+    def __init__(self,
                  dataset_directory: str = "~/data/rawkitti/prepared/",
                  # These parameters are specific to the dataset
                  grid_cell_size: float = 0.109375,
@@ -44,7 +44,7 @@ class KittiDataModule(BaseDataModule):
             shuffle_train (bool, optional): Whether to shuffle the training set (default: True).
 
         """
-        super().__init__(dataset=dataset,
+        super().__init__(dataset=KittiRawDataset,
                          dataset_directory=dataset_directory,
                          grid_cell_size=grid_cell_size,
                          x_min=x_min,
@@ -63,5 +63,9 @@ class KittiDataModule(BaseDataModule):
 
 
 if __name__ == "__main__":
-    datamodule = KittiDataModule()
+    datamodule = KittiDataModule(dataset_directory="../../data/rawkitti/")
+    datamodule.setup("fit")
+    train_dl = datamodule.train_dataloader()
+    train_ds = datamodule._train_
+    a = train_ds[0]
     tmp = None
