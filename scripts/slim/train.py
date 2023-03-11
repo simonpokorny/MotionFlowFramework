@@ -1,17 +1,18 @@
 import os
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, ArgumentTypeError
-from easydict import EasyDict
 
-
-from configs.utils import load_config
-from datasets.kitti import KittiDataModule
-from datasets.waymoflow import WaymoDataModule
-from models.SLIM import SLIM
-from callbacks import SaveInference
+import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 
-import pytorch_lightning as pl
+import sys
+sys.path.append('../../')
+
+from callbacks import SaveInference
+from configs import load_config
+from datasets.kitti import KittiDataModule
+from datasets.waymoflow import WaymoDataModule
+from models.SLIM import SLIM
 
 
 def str2bool(v):
@@ -53,44 +54,46 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    EXPERIMENT_PATH = "~/experiments"
+    EXPERIMENT_PATH = "experiments"
     os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
     args = parse_args()
     cfg = load_config("../../configs/slim.yaml")
-    data_cfg = EasyDict(cfg["data"])
+    data_cfg = cfg["data"]
     del cfg["data"]
     model = SLIM(config=cfg)
 
-    #args.dataset = "kitti"
+    # args.dataset = "kitti"
 
     if args.resume_from_checkpoint is not None:
         raise NotImplementedError()
 
-    grid_cell_size = (data_cfg.x_max + abs(data_cfg.x_min)) / data_cfg.n_pillars_x
+    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
     if args.dataset == 'waymo':
         dataset_path = args.data_path if args.data_path is not None else "../../data/waymoflow_subset"
-        data_module = WaymoDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg.x_min,
-                                      x_max=data_cfg.x_max, y_min=data_cfg.y_min,
-                                      y_max=data_cfg.y_max, z_min=data_cfg.z_min, z_max=data_cfg.z_max,
-                                      batch_size=data_cfg.batch_size,
+        data_module = WaymoDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg["x_min"],
+                                      x_max=data_cfg["x_max"], y_min=data_cfg["y_min"],
+                                      y_max=data_cfg["y_max"], z_min=data_cfg["z_min"], z_max=data_cfg["z_max"],
+                                      batch_size=data_cfg["batch_size"],
                                       has_test=False,
-                                      num_workers=data_cfg.num_workers,
-                                      n_pillars_x=data_cfg.n_pillars_x,
-                                      n_points=data_cfg.n_points, apply_pillarization=data_cfg.apply_pillarization)
+                                      num_workers=data_cfg["num_workers"],
+                                      n_pillars_x=data_cfg["n_pillars_x"],
+                                      n_points=data_cfg["n_points"],
+                                      apply_pillarization=data_cfg["apply_pillarization"])
 
     elif data_cfg.dataset == 'kitti':
         dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
-        data_module = KittiDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg.x_min,
-                                      x_max=data_cfg.x_max, y_min=data_cfg.y_min,
-                                      y_max=data_cfg.y_max, z_min=data_cfg.z_min, z_max=data_cfg.z_max,
-                                      batch_size=data_cfg.batch_size,
+        data_module = KittiDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg["x_min"],
+                                      x_max=data_cfg["x_max"], y_min=data_cfg["y_min"],
+                                      y_max=data_cfg["y_max"], z_min=data_cfg.z_min, z_max=data_cfg["z_max"],
+                                      batch_size=data_cfg["batch_size"],
                                       has_test=False,
-                                      num_workers=data_cfg.num_workers,
-                                      n_pillars_x=data_cfg.n_pillars_x,
-                                      n_points=data_cfg.n_points, apply_pillarization=data_cfg.apply_pillarization)
+                                      num_workers=data_cfg["num_workers"],
+                                      n_pillars_x=data_cfg["n_pillars_x"],
+                                      n_points=data_cfg["n_points"],
+                                      apply_pillarization=data_cfg["apply_pillarization"])
     else:
-        raise ValueError('Dataset {} not available yet'.format(data_cfg.dataset))
+        raise ValueError('Dataset {} not available yet'.format(data_cfg["dataset"]))
 
     try:
         version = len(os.listdir(os.path.join(EXPERIMENT_PATH, "lightning_logs")))

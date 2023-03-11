@@ -7,7 +7,7 @@ from configs.utils import load_config
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
 from models.utils import init_weights
-from visualization.plot import plot_2d_point_cloud, plot_tensor, visualise_tensor
+#from visualization.plot import plot_2d_point_cloud, plot_tensor, visualise_tensor
 
 VISUALIZATION = False
 
@@ -160,10 +160,11 @@ class SLIM(pl.LightningModule):
 
         # Check VISUALIZATION
         if VISUALIZATION:
-            plot_2d_point_cloud(current_batch_pc[0])
+            pass
+            #plot_2d_point_cloud(current_batch_pc[0])
             # plot_pillars(current_voxel_coordinates[0], 35, -35, 35, -35., 0.109375)
-            plot_tensor(current_batch_pillar_mask[0][0])
-            visualise_tensor(current_batch_pillar_mask)
+            #plot_tensor(current_batch_pillar_mask[0][0])
+            #visualise_tensor(current_batch_pillar_mask)
             # import matplotlib.pyplot as plt
 
         # 2. RAFT Encoder with motion flow backbone
@@ -444,9 +445,10 @@ class SLIM(pl.LightningModule):
         print(
             f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {rigic_cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
 
-        self.log(f'{mode}/loss', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/loss', rigic_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/loss', artificial_class_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/loss/nn', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/loss/rigid_cycle', rigic_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/loss/artificial', artificial_class_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/moving_threshold', self._moving_dynamicness_threshold.value(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
 
         metrics = 0
         # y_hat = y_hat[current_frame_masks]

@@ -13,12 +13,17 @@
 #cd $HOME/lidar/models/spvnas
 module purge # unload all loaded modules
 
+# ml tensorboardX/2.5.1-foss-2022a-CUDA-11.7.0
+ml tensorboardX/2.4.1-foss-2021a-CUDA-11.3.1
 
+#ml PyTorch3D/0.7.1-foss-2022a-CUDA-11.7.0
+ml PyTorch3D/0.7.1-foss-2021b-CUDA-11.4.1
 
-ml PyTorch-Lightning/1.9.0-foss-2022a-CUDA-11.7.0
-ml PyTorch3D/0.7.1-foss-2022a-CUDA-11.7.0
-ml PyTorch/1.13.0-foss-2022a-CUDA-11.7.0
-ml tensorboardX/2.5.1-foss-2022a-CUDA-11.7.0
+#ml PyTorch/1.13.0-foss-2022a-CUDA-11.7.0
+ml PyTorch/1.12.0-foss-2021b-CUDA-11.4.1
 
-python -u train.py --dataset kitti --accelerator gpu --fast_dev_run True \
+#ml PyTorch-Lightning/1.9.0-foss-2022a-CUDA-11.7.0
+ml PyTorch-Lightning/1.6.5-foss-2021b-CUDA-11.4.1
+
+python -u train.py --dataset rawkitti --accelerator gpu --fast_dev_run true \
   --data_path /home/pokorsi1/data/rawkitti/prepared
