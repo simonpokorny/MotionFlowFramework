@@ -14,7 +14,7 @@ class KittiDataModule(BaseDataModule):
                  z_min: float = -10,
                  z_max: float = 10,
                  n_pillars_x: int = 640,
-                 batch_size: int = 32,
+                 batch_size: int = 1,
                  has_test=False,
                  num_workers=1,
                  n_points=None,
@@ -63,9 +63,12 @@ class KittiDataModule(BaseDataModule):
 
 
 if __name__ == "__main__":
-    datamodule = KittiDataModule(dataset_directory="../../data/rawkitti/")
+    datamodule = KittiDataModule(dataset_directory="../../data/rawkitti/", num_workers=0)
     datamodule.setup("fit")
     train_dl = datamodule.train_dataloader()
     train_ds = datamodule._train_
     a = train_ds[0]
-    tmp = None
+    for bs in train_dl:
+
+        tmp = None
+

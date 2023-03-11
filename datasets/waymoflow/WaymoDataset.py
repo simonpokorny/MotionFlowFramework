@@ -111,7 +111,10 @@ class WaymoDataset(Dataset):
             current_frame = (current_frame, None)
         # This returns a tuple of augmented pointcloud and grid indices
 
-        return (previous_frame, current_frame), flows, (G_T_P, G_T_C)
+        # Transformation matrix Previous (t0) to Current (t1)
+        P_T_C = np.linalg.inv(G_T_P) @ G_T_C
+
+        return (previous_frame, current_frame), flows, P_T_C
 
     def subsample_points(self, current_frame, previous_frame, flows):
         # current_frame.shape[0] == flows.shape[0]

@@ -115,6 +115,7 @@ class RAFT(pl.LightningModule):
         # toto poradi piuziva keras ale pytorch ma [BS, CH, H, W]
         coords_t0, coords_t1 = self._initialize_flow(previous_pillar_embeddings, indexing="ij")
         bs, c, h, w = coords_t0.shape
+        device = previous_pillar_embeddings.device
 
         # Decide if to use default RAFT (vanilla) or modified to SLIM (single)
         # vanilla version do not process logits for static dynamic.
@@ -122,14 +123,14 @@ class RAFT(pl.LightningModule):
             logits = None
             upsampled_dummy_logits = torch.zeros([bs, 4,
                                                   h * self.feature_downsampling_factor,
-                                                  w * self.feature_downsampling_factor])
+                                                  w * self.feature_downsampling_factor], device=device)
         else:
-            logits = torch.zeros([bs, 4, h, w])
+            logits = torch.zeros([bs, 4, h, w], device=device)
 
         # Initialization for weights for Kabsch algorithm
         if self.predict_weight_for_static_aggregation is not False:
             assert self.flow_maps_archi != "vanilla"
-            weight_logits_for_static_aggregation = torch.zeros([bs, 1, h, w])
+            weight_logits_for_static_aggregation = torch.zeros([bs, 1, h, w], device=device)
         else:
             weight_logits_for_static_aggregation = None
 
@@ -239,7 +240,7 @@ class RAFT(pl.LightningModule):
         torch.Tensor: A tensor of shape (batch_size, 2, height, width) representing the optical flow in USFL convention.
         """
         # x,y - resolution of bev map
-        resolution_adapter = torch.tensor([70 / 640, 70 / 640], dtype=torch.float32, ).reshape((1, -1, 1, 1))
+        resolution_adapter = torch.tensor([70 / 640, 70 / 640], dtype=torch.float32, device=flow.device).reshape((1, -1, 1, 1))
         flow_meters = torch.flip(flow, dims=[-1]) * resolution_adapter
         return flow_meters
 
@@ -286,8 +287,8 @@ class RAFT(pl.LightningModule):
             width / feature_downsampling_factor) representing the initial and
             final coordinate grids for computing optical flow.
         """
-        coords0 = coords_grid(batch=img, downscale_factor=self.feature_downsampling_factor, indexing=indexing)
-        coords1 = coords_grid(batch=img, downscale_factor=self.feature_downsampling_factor, indexing=indexing)
+        coords0 = coords_grid(batch=img, downscale_factor=self.feature_downsampling_factor, device=img.device, indexing=indexing)
+        coords1 = coords_grid(batch=img, downscale_factor=self.feature_downsampling_factor, device=img.device, indexing=indexing)
 
         # optical flow computed as difference: flow = coords1 - coords0
         return coords0, coords1

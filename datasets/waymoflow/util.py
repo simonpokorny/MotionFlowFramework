@@ -123,12 +123,8 @@ def custom_collate_batch(batch):
         entry[1] for entry in batch
     ]
 
-    batch_transforms_previous = [
-        entry[2][0] for entry in batch
-    ]
-
-    batch_transforms_current = [
-        entry[2][1] for entry in batch
+    batch_transform = [
+        entry[2] for entry in batch
     ]
 
     batch_targets = _pad_targets(batch_targets)
@@ -138,8 +134,7 @@ def custom_collate_batch(batch):
     batch_current = default_collate(batch_current)
     batch_targets = default_collate(batch_targets)
 
-    batch_transforms_previous = default_collate(batch_transforms_previous)
-    batch_transforms_current = default_collate(batch_transforms_current)
+    batch_transform = default_collate(batch_transform)
 
     # Return a tensor that consists of
     # the data batches consist of batches of tensors
@@ -153,7 +148,7 @@ def custom_collate_batch(batch):
     # The targets consist of
     #   (batch_size, max_n_points, target_features). should by 4D x,y,z flow and class id
 
-    return (batch_previous, batch_current), batch_targets, (batch_transforms_previous, batch_transforms_current)
+    return (batch_previous, batch_current), batch_targets, batch_transform
 
 def remove_out_of_bounds_points(pc, y, x_min, x_max, y_min, y_max, z_min, z_max):
     # Max needs to be exclusive because the last grid cell on each axis contains

@@ -230,7 +230,7 @@ class OutputDecoder(pl.LightningModule):
         # gt_static_flow is (P_T_G - eye), which results in flow, shape
         # TODO should be here inverse?
         print("UnCheck")
-        gt_static_flow = inv_odom - torch.eye(4, dtype=torch.float64)
+        gt_static_flow = inv_odom - torch.eye(4, dtype=torch.float64, device=inv_odom.device)
         gt_static_flow = torch.einsum("bij,hwj->bhwi", gt_static_flow,
                                       homog_metric_voxel_center_coords)
         # normalization of the 4th coordinates
@@ -272,6 +272,10 @@ class OutputDecoder(pl.LightningModule):
             ],
             axis=-1,
         ))
+
+        homog_metric_voxel_center_coords = torch.tensor(homog_metric_voxel_center_coords, device=network_output.device)
+        voxel_center_metric_coordinates = torch.tensor(voxel_center_metric_coordinates, device=network_output.device)
+
         # homog_metric_voxel_center_coords only add z coord to 0 and 4th dimension for homogeneous coordinates
         return homog_metric_voxel_center_coords, voxel_center_metric_coordinates
 
@@ -315,7 +319,8 @@ class OutputDecoder(pl.LightningModule):
 
         pointwise_concat_bool_vals = torch.where(pointwise_valid_mask.unsqueeze(-1),
                                                  pointwise_concat_bool_vals,
-                                                 torch.zeros_like(pointwise_concat_bool_vals))
+                                                 torch.zeros_like(pointwise_concat_bool_vals,
+                                                                  device=pointwise_concat_bool_vals.device))
         pointwise_concat_flt_vals = torch.where(pointwise_valid_mask.unsqueeze(-1),
                                                 pointwise_concat_flt_vals,
                                                 torch.tensor(float("nan"), dtype=torch.float32).repeat(

@@ -114,8 +114,9 @@ def bilinear_sampler(img, coords, mode='bilinear', mask=False):
     return img
 
 
-def coords_grid(batch, downscale_factor=8, indexing="xy"):
+def coords_grid(batch, downscale_factor=8, device="cpu", indexing="xy"):
     bs, ch, h, w = batch.shape
-    coords = torch.meshgrid(torch.arange(h // downscale_factor), torch.arange(w // downscale_factor), indexing=indexing)
+    coords = torch.meshgrid(torch.arange(h // downscale_factor, device=device),
+                            torch.arange(w // downscale_factor, device=device), indexing=indexing)
     coords = torch.stack(coords[::-1], dim=0).float()
     return coords[None].repeat(bs, 1, 1, 1)

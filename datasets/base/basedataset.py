@@ -49,7 +49,7 @@ class BaseDataset(Dataset):
 
         # Drop invalid points according to the method supplied
         if self._drop_invalid_point_function is not None:
-            print(type(t1_frame), type(flows))
+            #print(type(t1_frame), type(flows))
             t1_frame, flows = self._drop_invalid_point_function(t1_frame, None)
             t0_frame, _ = self._drop_invalid_point_function(t0_frame, None)
 
@@ -61,6 +61,9 @@ class BaseDataset(Dataset):
             # output must be a tuple
             t0_frame = (t0_frame, None)
             t1_frame = (t1_frame, None)
+
+        if flows is None:
+            flows = np.zeros(shape=(t1_frame[0].shape[0], 1))
 
         return (t0_frame, t1_frame), flows, t0_to_t1
 

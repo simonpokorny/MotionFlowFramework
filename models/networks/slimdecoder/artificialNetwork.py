@@ -387,7 +387,7 @@ class ArtificialNetworkOutput(pl.LightningModule):
                 filled_pillar_mask,
                 network_output_dict[k],
                 default_values_for_nonfilled_pillars[k]
-                * torch.ones_like(network_output_dict[k]),
+                * torch.ones_like(network_output_dict[k], device=filled_pillar_mask.device),
             )
 
         return network_output_dict
@@ -430,7 +430,7 @@ class ArtificialNetworkOutput(pl.LightningModule):
                 filled_pillar_mask[..., 0],
                 network_output_dict["weight_logits_for_static_aggregation"],
                 torch.ones_like(network_output_dict["weight_logits_for_static_aggregation"]
-                                ) * (
+                                , device=network_output_dict["weight_logits_for_static_aggregation"].device) * (
                         torch.min(network_output_dict["weight_logits_for_static_aggregation"]) - 1000.0))
 
             curshape = network_output_dict["masked_weights_for_static_aggregation"].shape
