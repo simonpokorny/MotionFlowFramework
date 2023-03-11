@@ -81,11 +81,11 @@ if __name__ == "__main__":
                                       n_points=data_cfg["n_points"],
                                       apply_pillarization=data_cfg["apply_pillarization"])
 
-    elif data_cfg.dataset == 'kitti':
+    elif args.dataset == 'rawkitti':
         dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
         data_module = KittiDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg["x_min"],
                                       x_max=data_cfg["x_max"], y_min=data_cfg["y_min"],
-                                      y_max=data_cfg["y_max"], z_min=data_cfg.z_min, z_max=data_cfg["z_max"],
+                                      y_max=data_cfg["y_max"], z_min=data_cfg["z_min"], z_max=data_cfg["z_max"],
                                       batch_size=data_cfg["batch_size"],
                                       has_test=False,
                                       num_workers=data_cfg["num_workers"],

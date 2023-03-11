@@ -50,8 +50,8 @@ class BaseDataModule(pl.LightningDataModule):
 
         """
         super(BaseDataModule, self).__init__()
+        self._dataset = dataset
         self._dataset_directory = Path(dataset_directory)
-        self.dataset = dataset
         self._batch_size = batch_size
         self._train_ = None
         self._val_ = None
@@ -82,17 +82,17 @@ class BaseDataModule(pl.LightningDataModule):
         :param stage: either 'fit', 'validate', 'test' or 'predict'
         :return: None
         """
-        self._train_ = self.dataset(self._dataset_directory.joinpath("train"),
+        self._train_ = self._dataset(self._dataset_directory.joinpath("train"),
                                     point_cloud_transform=self._pillarization_transform,
                                     drop_invalid_point_function=self._drop_points_function,
                                     n_points=self._n_points, apply_pillarization=self.apply_pillarization)
-        self._val_ = self.dataset(self._dataset_directory.joinpath("valid"),
+        self._val_ = self._dataset(self._dataset_directory.joinpath("valid"),
                                   point_cloud_transform=self._pillarization_transform,
                                   drop_invalid_point_function=self._drop_points_function,
                                   apply_pillarization=self.apply_pillarization,
                                   n_points=self._n_points)
         if self._has_test:
-            self._test_ = self.dataset(self._dataset_directory.joinpath("test"),
+            self._test_ = self._dataset(self._dataset_directory.joinpath("test"),
                                        point_cloud_transform=self._pillarization_transform,
                                        drop_invalid_point_function=self._drop_points_function,
                                        apply_pillarization=self.apply_pillarization
