@@ -73,9 +73,15 @@ class SLIM(pl.LightningModule):
         The method calculates the x and y indices of the grid points using the number of pillars in
         the x and y dimensions, respectively, and then concatenates them along the second dimension.
         """
-        grid = np.hstack(
-            ((batch_grid // self.n_pillars_x)[:, np.newaxis], (batch_grid % self.n_pillars_y)[:, np.newaxis]))
-        return np.moveaxis(grid, -1, 1)
+        # Numpy version
+        # grid = np.hstack(
+        #    ((batch_grid // self.n_pillars_x)[:, np.newaxis], (batch_grid % self.n_pillars_y)[:, np.newaxis]))
+        # grid = np.moveaxis(grid, -1, 1)
+
+        # Pytorch version
+        grid = torch.cat(((batch_grid // self.n_pillars_x).unsqueeze(1),
+                          (batch_grid % self.n_pillars_y).unsqueeze(1)), dim=1)
+        return grid.transpose(-1, 1)  # Equivalent to np.moveaxis(grid, -1, 1)
 
     def _filled_pillar_mask(self, batch_grid, batch_mask):
         """
@@ -85,7 +91,7 @@ class SLIM(pl.LightningModule):
         """
         bs = batch_grid.shape[0]
         # pillar mask
-        pillar_mask = torch.zeros((bs, 1, self.n_pillars_x, self.n_pillars_y))
+        pillar_mask = torch.zeros((bs, 1, self.n_pillars_x, self.n_pillars_y), device=batch_grid.device)
         #
         x = batch_grid[batch_mask][..., 0]
         y = batch_grid[batch_mask][..., 1]
@@ -106,8 +112,11 @@ class SLIM(pl.LightningModule):
         # that do not have a fixed amount of points
         # x is a tuple of two lists representing the batches
         previous_batch, current_batch = x
-        # trans is a tuple of two tensors representing transforms to global coordinate system
-        G_T_P, G_T_C = transforms_matrices
+        # trans is a tensor representing transforms from previous to current fram (t0 -> t1)
+
+        P_T_C = transforms_matrices
+        C_T_P = torch.linalg.inv(P_T_C)
+
         previous_batch_pc, previous_batch_grid, previous_batch_mask = previous_batch
         current_batch_pc, current_batch_grid, current_batch_mask = current_batch
         # For some reason the datatype of the input is not changed to correct precision
@@ -174,9 +183,9 @@ class SLIM(pl.LightningModule):
         outputs_fw, outputs_bw = self._raft(pillar_embeddings)
 
         # Transformation matrix Current (t1) to Previous (t0)
-        C_T_P = torch.linalg.inv(G_T_C) @ G_T_P
+        #C_T_P = torch.linalg.inv(G_T_C) @ G_T_P
         # Transformation matrix Previous (t0) to Current (t1)
-        P_T_C = torch.linalg.inv(G_T_P) @ G_T_C
+        #P_T_C = torch.linalg.inv(G_T_P) @ G_T_C
 
         predictions_fw = []
         predictions_bw = []
@@ -184,7 +193,7 @@ class SLIM(pl.LightningModule):
         for it, (raft_output_0_1, raft_output_1_0) in enumerate(zip(outputs_fw, outputs_bw)):
             prediction_fw = self._decoder_fw(
                 network_output=raft_output_0_1,
-                dynamicness_threshold=self._moving_dynamicness_threshold.value(),  # TODO
+                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(P_T_C.device),  # TODO
                 pc=previous_batch_pc,
                 pointwise_voxel_coordinates_fs=previous_voxel_coordinates,  # torch.randint(0, 640, (1, 95440, 2)),
                 pointwise_valid_mask=previous_batch_mask,  # torch.randint(0, 2, (1, 95440)).type(torch.bool),
