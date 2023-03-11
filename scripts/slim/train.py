@@ -1,9 +1,18 @@
+import os
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, ArgumentTypeError
-from configs.utils import load_config
-from models.SLIM import SLIM
+from easydict import EasyDict
 
-from datasets.waymoflow import WaymoDataModule
+
+from configs.utils import load_config
 from datasets.kitti import KittiDataModule
+from datasets.waymoflow import WaymoDataModule
+from models.SLIM import SLIM
+from callbacks import SaveInference
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+
+import pytorch_lightning as pl
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -35,96 +44,66 @@ def parse_args():
 
     parser.add_argument('--fast_dev_run', type=str2bool, nargs='?', const=True, default=False,
                         help="If fast_dev_run is true (train is in developer mode for one batch)")
-    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--gpus', default=1, type=int, help="GPU parameter of PL Trainer class.")
-    parser.add_argument('--accelerator', default="gpu", type=str,
+    parser.add_argument('--accelerator', default="cpu", type=str,
                         help="Accelerator to use. Set to ddp for multi GPU training.")  # Param of Trainer
+
+    args = parser.parse_args()
+    return args
 
 
 if __name__ == "__main__":
+    EXPERIMENT_PATH = "~/experiments"
+    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
+
     args = parse_args()
     cfg = load_config("../../configs/slim.yaml")
-    data_cfg = cfg["data"]
+    data_cfg = EasyDict(cfg["data"])
     del cfg["data"]
     model = SLIM(config=cfg)
 
+    #args.dataset = "kitti"
 
+    if args.resume_from_checkpoint is not None:
+        raise NotImplementedError()
 
-
-    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["grid_size"]
-
-    n_pillars_x = data_cfg["n_pillars_x"]
-    n_pillars_y = data_cfg["n_pillars_x"]
-
-    apply_pillarization = data_cfg["apply_pillarization"]
-
-
-
-
+    grid_cell_size = (data_cfg.x_max + abs(data_cfg.x_min)) / data_cfg.n_pillars_x
     if args.dataset == 'waymo':
+        dataset_path = args.data_path if args.data_path is not None else "../../data/waymoflow_subset"
+        data_module = WaymoDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg.x_min,
+                                      x_max=data_cfg.x_max, y_min=data_cfg.y_min,
+                                      y_max=data_cfg.y_max, z_min=data_cfg.z_min, z_max=data_cfg.z_max,
+                                      batch_size=data_cfg.batch_size,
+                                      has_test=False,
+                                      num_workers=data_cfg.num_workers,
+                                      n_pillars_x=data_cfg.n_pillars_x,
+                                      n_points=data_cfg.n_points, apply_pillarization=data_cfg.apply_pillarization)
 
-        data_module = WaymoDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=args.x_min,
-                                      x_max=args.x_max, y_min=args.y_min,
-                                      y_max=args.y_max, z_min=args.z_min, z_max=args.z_max,
-                                      batch_size=args.batch_size,
-                                      has_test=args.test_data_available,
-                                      num_workers=args.num_workers,
-                                      n_pillars_x=n_pillars_x,
-                                      n_points=args.n_points, apply_pillarization=apply_pillarization)
-
-        from data.util import ApplyPillarization
-        pilarization = ApplyPillarization(grid_cell_size=grid_cell_size, x_min=args.x_min, y_min=args.y_min,
-                           z_min=args.z_min, z_max=args.z_max, n_pillars_x=n_pillars_x,
-                           )
-
-
-    elif args.dataset == 'kitti':
-        data_module = KittiDataModule(dataset_path,
-                                batch_size=args.batch_size,
-                                has_test=args.test_data_available,
-                                num_workers=args.num_workers,
-                                n_points=args.n_points)
+    elif data_cfg.dataset == 'kitti':
+        dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
+        data_module = KittiDataModule(dataset_path, grid_cell_size=grid_cell_size, x_min=data_cfg.x_min,
+                                      x_max=data_cfg.x_max, y_min=data_cfg.y_min,
+                                      y_max=data_cfg.y_max, z_min=data_cfg.z_min, z_max=data_cfg.z_max,
+                                      batch_size=data_cfg.batch_size,
+                                      has_test=False,
+                                      num_workers=data_cfg.num_workers,
+                                      n_pillars_x=data_cfg.n_pillars_x,
+                                      n_points=data_cfg.n_points, apply_pillarization=data_cfg.apply_pillarization)
     else:
-        raise ValueError('Dataset {} not available'.format(args.dataset))
+        raise ValueError('Dataset {} not available yet'.format(data_cfg.dataset))
 
+    try:
+        version = len(os.listdir(os.path.join(EXPERIMENT_PATH, "lightning_logs")))
+    except:
+        version = 0
 
+    callbacks = [ModelCheckpoint(dirpath=EXPERIMENT_PATH, save_weights_only=True, every_n_train_steps=1000),
+                 SaveInference(dirpath=EXPERIMENT_PATH, name="lightning_logs", version=version)]
+    loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name="lightning_logs", log_graph=True, version=version),
+               CSVLogger(save_dir=EXPERIMENT_PATH, name="lightning_logs", version=version)]
 
+    # trainer with no validation loop
+    trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
+                         enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=50)
 
-    gradient_batch_acc = 1  # Do not accumulate batches before performing optimizer step
-    if args.full_batch_size is not None:
-        gradient_batch_acc = int(args.full_batch_size / args.batch_size)
-        print(f"A full batch size is specified. The model will perform gradient update after {gradient_batch_acc} "
-              f"smaller batches of size {args.batch_size} to approx. total batch size of {args.full_batch_size}."
-              f"PLEASE NOTE that if the network includes layers that need larger batch sizes such as BatchNorm "
-              f"they are still computed for each forward pass.")
-
-    plugins = None
-    if args.disable_ddp_unused_check:
-        if not args.accelerator == "ddp":
-            print("FATAL: DDP unused checks can only be disabled when DDP is used as accelerator!")
-            exit(1)
-        print("Disabling unused parameter check for DDP")
-        # plugins = DDPPlugin(find_unused_parameters=False)
-
-    # Add a callback for checkpointing after each epoch and the model with best validation loss
-    # checkpoint_callback = ModelCheckpoint(monitor="val/loss", mode="min", save_last=True)
-
-    # Max epochs can be configured here to, early stopping is also configurable.
-    # Some things are definable as callback from pytorch_lightning.callback
-    # trainer = pl.Trainer.from_argparse_args(args,
-    #                                         precision=32,  # Precision 16 does not seem to work with batchNorm1D
-    #                                         gpus=args.gpus if torch.cuda.is_available() else 0,  # -1 means "all GPUs"
-    #                                         logger=logger,
-    #                                         accumulate_grad_batches=gradient_batch_acc,
-    #                                         log_every_n_steps=5,
-    #                                         plugins=plugins,
-    #                                         callbacks=[checkpoint_callback]
-    #                                         )  # Add Trainer hparams if desired
-    # The actual train loop
-    # trainer.fit(model, data_module)
-
-    # Run also the testing
-    # if args.test_data_available and not args.fast_dev_run:
-    #     trainer.test()  # Also loads the best checkpoint automatically
-
-    # dummy data for testing
+    trainer.fit(model, data_module)

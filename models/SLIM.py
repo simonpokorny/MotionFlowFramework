@@ -23,6 +23,13 @@ class SLIM(pl.LightningModule):
         assert type(config) == dict
         self.config = config
 
+        # just only example input to model (useful for tensorboard to make computional graph)
+        t1 = [torch.zeros([1, 20, 8]), torch.zeros([1, 20]), torch.zeros([1, 20])]
+        t0 = [torch.zeros([1, 20, 8]), torch.zeros([1, 20]), torch.zeros([1, 20])]
+        transf = torch.zeros([1, 4, 4]), torch.zeros([1, 4, 4])
+        gt_flow = torch.tensor([1,20,4])
+        #self.example_input_array = (t0, t1), transf
+
         self.save_hyperparameters()  # Store the constructor parameters into self.hparams
         self.n_pillars_x = config["default"]["n_pillars_x"]
         self.n_pillars_y = config["default"]["n_pillars_y"]

@@ -1,5 +1,5 @@
 from datasets.base import BaseDataModule
-from kittidataset import KittiRawDataset
+from datasets.kitti.kittidataset import KittiRawDataset
 
 
 class KittiDataModule(BaseDataModule):

@@ -1,2 +1,2 @@
-from datasets.kitti.kittidatamodule import KittiDataModule
-from datasets.kitti.kittidataset import KittiRawDataset
+from .kittidatamodule import KittiDataModule
+from .kittidataset import KittiRawDataset
