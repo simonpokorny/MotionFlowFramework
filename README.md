@@ -32,9 +32,9 @@
 - [ ] Lossy
 #### Simon
 - [x] Udělat todo list na readme :)
-- [ ] Kitti raw daataset
+- [x] Kitti raw daataset
 - [x] BaseDataset & Base Dataloader
-- [ ] Train on raw kitti
+- [x] Train on raw kitti
 
 
 ### Repo folder structure
