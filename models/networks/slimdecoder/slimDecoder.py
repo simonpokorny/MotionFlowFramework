@@ -229,8 +229,8 @@ class OutputDecoder(pl.LightningModule):
         """
         # gt_static_flow is (P_T_G - eye), which results in flow, shape
         # TODO should be here inverse?
-        print("UnCheck")
-        gt_static_flow = inv_odom - torch.eye(4, dtype=torch.float64, device=inv_odom.device)
+        #print("UnCheck")
+        gt_static_flow = inv_odom - torch.eye(4, device=inv_odom.device)
         gt_static_flow = torch.einsum("bij,hwj->bhwi", gt_static_flow,
                                       homog_metric_voxel_center_coords)
         # normalization of the 4th coordinates
@@ -321,9 +321,11 @@ class OutputDecoder(pl.LightningModule):
                                                  pointwise_concat_bool_vals,
                                                  torch.zeros_like(pointwise_concat_bool_vals,
                                                                   device=pointwise_concat_bool_vals.device))
+
         pointwise_concat_flt_vals = torch.where(pointwise_valid_mask.unsqueeze(-1),
                                                 pointwise_concat_flt_vals,
-                                                torch.tensor(float("nan"), dtype=torch.float32).repeat(
+                                                torch.tensor(float("nan"),
+                                                             device=pointwise_concat_bool_vals.device).repeat(
                                                     *pointwise_concat_flt_vals.shape))
 
         assert pointwise_concat_bool_vals.shape[-1] == 3, pointwise_concat_bool_vals.shape

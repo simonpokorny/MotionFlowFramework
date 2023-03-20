@@ -68,13 +68,18 @@ class StaticAggregatedFlow(torch.nn.Module):
         pointwise_flow = static_3d_flow_grid[torch.arange(bs)[:, None], :, x, y]
         # point-wise flow is in shape [bs, num_points, 3]
         # We transform the flow from bev image to pcl
-
-        voxel_center_metric_coordinates_f32 = voxel_center_metric_coordinates.astype(np.float32)
+        #print(voxel_center_metric_coordinates.dtype, "######")
+        # Change from float32 to default float64
+        # voxel_center_metric_coordinates_f32 = voxel_center_metric_coordinates.astype(np.float32)
         # also constructing centers of voxels
-        pc0_grid = torch.tensor(
-            np.concatenate(
-                [voxel_center_metric_coordinates_f32,
-                 np.zeros_like(voxel_center_metric_coordinates_f32[..., :1])], axis=-1))
+        #pc0_grid = torch.tensor(
+        #    np.concatenate([voxel_center_metric_coordinates,
+        #                    np.zeros_like(voxel_center_metric_coordinates[..., :1])], axis=-1),
+        #    device=voxel_center_metric_coordinates.device)
+
+        pc0_grid = torch.cat([voxel_center_metric_coordinates,
+                              torch.zeros_like(voxel_center_metric_coordinates[..., :1])], dim=-1).to(
+            voxel_center_metric_coordinates.device)
 
         static_3d_flow_grid = static_3d_flow_grid.permute(0, 2, 3, 1)
         # change order from [BS, CH, H, W] -> [BS, H, W, CH]
@@ -104,13 +109,15 @@ class StaticAggregatedFlow(torch.nn.Module):
         transformation, not_enough_points = self.kabsch(cloud_t0=pc_xyz,
                                                         cloud_t1=(pc_xyz + pointwise_flow_xyz),
                                                         weights=pointwise_staticness[:, :, 0])
+        transformation = transformation.double()
 
         homogeneous_batched_pc0_grid = torch.cat([batched_pc0_grid,
                                                   torch.ones_like(batched_pc0_grid[..., 0][..., None])], dim=-1)
         # Constructing of static_aggr_flow
+        #print(transformation.dtype, pc.dtype)
         static_aggr_flow = torch.einsum(
             "bij,bhwj->bhwi",
-            transformation - torch.eye(4),
+            transformation - torch.eye(4, device=pc.device, dtype=torch.double),
             homogeneous_batched_pc0_grid)[..., 0:2]
 
         # Change static aggr flow to default BS CH H W

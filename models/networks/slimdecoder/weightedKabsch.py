@@ -7,6 +7,7 @@ Official implementation was rewrite into torch.
 import torch
 import torch.nn as nn
 
+
 def weighted_pc_alignment(cloud_t0, cloud_t1, weights):
     """
     Computes the weighted point cloud alignment between two point clouds.
@@ -135,7 +136,7 @@ class WeightedKabschAlgorithm(nn.Module):
         # TODO #
         m = 3
         r = torch.linalg.matrix_rank(Sxy_wtd)
-        S = torch.eye(m)
+        S = torch.eye(m, device= cloud_t0.device)
         if r > (m - 1):
             if torch.linalg.det(Sxy_wtd) < 0.0:
                 S[m - 1, m - 1] = -1.0
@@ -156,8 +157,8 @@ class WeightedKabschAlgorithm(nn.Module):
         # t = my_wtd - c * torch.matmul(R, mx_wtd)
 
         # T = torch.eye(dims + 1, batch_shape=torch.shape(weights)[:1])
-        R = torch.cat([R, torch.zeros_like(R[:, :1, :])], dim=1)
-        t = torch.cat([t, torch.ones_like(t[:, :1])], dim=-1)
+        R = torch.cat([R, torch.zeros_like(R[:, :1, :], device=cloud_t0.device)], dim=1)
+        t = torch.cat([t, torch.ones_like(t[:, :1], device=cloud_t0.device)], dim=-1)
         T = torch.cat([R, t[:, :, None]], dim=-1)
 
         #assert T.dtype == torch.float64
@@ -191,3 +192,5 @@ if __name__ == "__main__":
     kabsch = WeightedKabschAlgorithm()
     T, not_points = kabsch(A.unsqueeze(0).transpose(1,2), B.unsqueeze(0).transpose(1,2), weights.unsqueeze(0))
     print("Transformation matrix=\n", T)
+
+

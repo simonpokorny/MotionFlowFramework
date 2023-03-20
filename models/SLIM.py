@@ -204,7 +204,7 @@ class SLIM(pl.LightningModule):
 
             prediction_bw = self._decoder_bw(
                 network_output=raft_output_1_0,
-                dynamicness_threshold=self._moving_dynamicness_threshold.value(),
+                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(P_T_C.device),
                 pc=current_batch_pc,
                 pointwise_voxel_coordinates_fs=current_voxel_coordinates,
                 pointwise_valid_mask=current_batch_mask,
@@ -384,9 +384,11 @@ class SLIM(pl.LightningModule):
         # NN
         # forward
         # .cuda() should be optimized
-        p_i = x[0][0][..., :3].float()  # pillared - should be probably returned to previous form
+        #p_i = x[0][0][..., :3].float()  # pillared - should be probably returned to previous form
+        p_i = x[0][0][..., :3]
         # p_i = p_i[..., :3] + p_i[..., 3:6]# previous form
-        p_j = x[1][0][..., :3].float()
+        #p_j = x[1][0][..., :3].float()
+        p_j = x[1][0][..., :3]
         # p_j = p_j[..., :3] + p_j[..., 3:6]# previous form
 
         # this is ambiguous, not sure if there is difference between static_flow and dynamic_flow
@@ -451,8 +453,8 @@ class SLIM(pl.LightningModule):
         loss = 2. * nn_loss + 1. * rigic_cycle_loss + 0.1 * artificial_class_loss
         # loss.backward()   # backward probehne
 
-        print(
-            f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {rigic_cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
+        #print(
+        #    f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {rigic_cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
 
         self.log(f'{mode}/loss/nn', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f'{mode}/loss/rigid_cycle', rigic_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
