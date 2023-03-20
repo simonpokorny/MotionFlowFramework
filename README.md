@@ -5,6 +5,8 @@
 #### week 20.6.
 - updated codes for slim -> devices, types .. 
 - fast dev run gone through on rci 
+- kitti dataset and datamodule is add and tested
+- basedataset and datamodule is add and tested
 
 #### week 6.3.
 - Changed the structure of the project (seems more useful and organized)
