@@ -2,6 +2,10 @@
 
 ## Changes
 
+#### week 20.6.
+- updated codes for slim -> devices, types .. 
+- fast dev run gone through on rci 
+
 #### week 6.3.
 - Changed the structure of the project (seems more useful and organized)
 - all hyperparameters of slim are stored in config with description 
