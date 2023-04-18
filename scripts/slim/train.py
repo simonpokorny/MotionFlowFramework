@@ -1,17 +1,17 @@
 import os
+import sys
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, ArgumentTypeError
+from pathlib import Path
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 
-import sys
 sys.path.append('../../')
 
-from callbacks import SaveInference
+from callbacks import SaveViz
 from configs import load_config
-from datasets.kitti import KittiDataModule
-from datasets.waymoflow import WaymoDataModule
+from datasets import NuScenesDataModule, WaymoDataModule, KittiDataModule
 from models.SLIM import SLIM
 
 
@@ -39,10 +39,9 @@ def parse_args():
                         help="Path to ckpt file to resume from. Parameter from PytorchLightning Trainer.")
     # Data related arguments
     parser.add_argument('--dataset', default='waymo',
-                        choices=["waymo", 'rawkitti'],
+                        choices=["waymo", 'rawkitti', 'nuscenes'],
                         help="Dataset Type to train on.")
     parser.add_argument('--data_path', default=None, type=str, help="Specify the data dir.")
-
     parser.add_argument('--fast_dev_run', type=str2bool, nargs='?', const=True, default=False,
                         help="If fast_dev_run is true (train is in developer mode for one batch)")
     parser.add_argument('--gpus', default=1, type=int, help="GPU parameter of PL Trainer class.")
@@ -54,61 +53,69 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    EXPERIMENT_PATH = "experiments"
-    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
+    import warnings
+
+    warnings.filterwarnings("ignore")
 
     args = parse_args()
-    cfg = load_config("../../configs/slim.yaml")
-    data_cfg = cfg["data"]
-    del cfg["data"]
-    model = SLIM(config=cfg)
+    EXPERIMENT_PATH = Path("experiments")
+    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
-    # args.dataset = "kitti"
+    # Loading config
+    cfg = load_config("../../configs/slim.yaml")
+
+    # Creating the model
+    model = SLIM(config=cfg, dataset=args.dataset)
 
     if args.resume_from_checkpoint is not None:
         raise NotImplementedError()
 
-    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
     if args.dataset == 'waymo':
         dataset_path = args.data_path if args.data_path is not None else "../../data/waymoflow_subset"
-        data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size,
-                                      x_min=data_cfg["x_min"], x_max=data_cfg["x_max"],
-                                      y_min=data_cfg["y_min"], y_max=data_cfg["y_max"],
-                                      z_min=data_cfg["z_min"], z_max=data_cfg["z_max"],
-                                      batch_size=data_cfg["batch_size"],
-                                      has_test=False,
-                                      num_workers=data_cfg["num_workers"],
-                                      n_pillars_x=data_cfg["n_pillars_x"],
-                                      n_points=data_cfg["n_points"],
-                                      apply_pillarization=data_cfg["apply_pillarization"])
+        data_cfg = cfg["data"][args.dataset]
+        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
+        data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
 
     elif args.dataset == 'rawkitti':
         dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
-        data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size,
-                                      x_min=data_cfg["x_min"], x_max=data_cfg["x_max"],
-                                      y_min=data_cfg["y_min"], y_max=data_cfg["y_max"],
-                                      z_min=data_cfg["z_min"], z_max=data_cfg["z_max"],
-                                      batch_size=data_cfg["batch_size"],
-                                      has_test=False,
-                                      num_workers=data_cfg["num_workers"],
-                                      n_pillars_x=data_cfg["n_pillars_x"],
-                                      n_points=data_cfg["n_points"],
-                                      apply_pillarization=data_cfg["apply_pillarization"])
+        data_cfg = cfg["data"][args.dataset]
+        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
+        data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
+
+    elif args.dataset == "nuscenes":
+        dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/nuscenes/preprocess"
+        data_cfg = cfg["data"][args.dataset]
+        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
+        data_module = NuScenesDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
     else:
-        raise ValueError('Dataset {} not available yet'.format(data_cfg["dataset"]))
+        raise ValueError('Dataset {} not available yet'.format(args.dataset))
 
     try:
-        version = len(os.listdir(os.path.join(EXPERIMENT_PATH, "lightning_logs")))
+        version = len(os.listdir(os.path.join(EXPERIMENT_PATH, args.dataset, "lightning_logs")))
     except:
         version = 0
 
-    callbacks = [ModelCheckpoint(dirpath=EXPERIMENT_PATH, save_weights_only=True, every_n_train_steps=1000),
-                 SaveInference(dirpath=EXPERIMENT_PATH, name="lightning_logs", version=version)]
-    loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name="lightning_logs", log_graph=True, version=version),
-               CSVLogger(save_dir=EXPERIMENT_PATH, name="lightning_logs", version=version)]
+    print(f"Saved under version num : {version}")
+
+    callbacks = [ModelCheckpoint(dirpath=EXPERIMENT_PATH / args.dataset / "checkpoints" / f"version_{version}",
+                                 save_weights_only=True, every_n_train_steps=1000, save_last=True, save_top_k=-1)]
+
+                # SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
+                #         every_n_train_steps=1000)]
+
+    loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs",
+                                 log_graph=True, version=version),
+               CSVLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs", version=version)]
 
     # trainer with no validation loop
     trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
-                         enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=50)
+                         enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=10,
+                         logger=loggers, callbacks=callbacks)  # , limit_train_batches=1)
+
+    # Trainer where we will validete every 1000 iters (used as test during training)
+    # trainer = pl.Trainer(val_check_interval=1000, devices=1, accelerator=args.accelerator, enable_checkpointing=True,
+    #                     fast_dev_run=args.fast_dev_run, max_epochs=3,
+    #                     logger=loggers, callbacks=callbacks)  # , limit_train_batches=1)
+
 
     trainer.fit(model, data_module)

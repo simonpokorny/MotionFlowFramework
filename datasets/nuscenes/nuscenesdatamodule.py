@@ -4,12 +4,12 @@ sys.path.append("../")
 sys.path.append("../../")
 
 from datasets.base import BaseDataModule
-from datasets.kitti.kittidataset import KittiRawDataset
+from datasets.nuscenes.nuscenesdataset import NuScenesDataset
 
 
-class KittiDataModule(BaseDataModule):
+class NuScenesDataModule(BaseDataModule):
     def __init__(self,
-                 dataset_directory: str = "~/data/rawkitti/prepared/",
+                 dataset_directory: str,
                  # These parameters are specific to the dataset
                  grid_cell_size: float = 0.109375,
                  x_min: float = -35.,
@@ -26,7 +26,7 @@ class KittiDataModule(BaseDataModule):
                  n_points=None,
                  apply_pillarization=True,
                  shuffle_train=True,
-                 point_features=7):
+                 point_features=6):
         """
         This class defines a PyTorch Lightning DataModule that loads and preprocesses data from a specified dataset
         directory using the provided arguments. For correct using, it is neccesery to implement a class dataset for
@@ -51,7 +51,7 @@ class KittiDataModule(BaseDataModule):
             shuffle_train (bool, optional): Whether to shuffle the training set (default: True).
 
         """
-        super().__init__(dataset=KittiRawDataset,
+        super().__init__(dataset=NuScenesDataset,
                          dataset_directory=dataset_directory,
                          grid_cell_size=grid_cell_size,
                          x_min=x_min,
@@ -69,73 +69,4 @@ class KittiDataModule(BaseDataModule):
                          shuffle_train=shuffle_train)
 
 
-if __name__ == "__main__":
 
-
-    # COMPUTE NUM POINTS FOR MOVING DYNAMIC THRESHOLDS
-
-    import numpy as np
-    from tqdm import tqdm
-    from configs import load_config
-    from visualization.plot import show_flow
-
-    grid_cell_size = 0.109375
-    # dataset_path = "/home/pokorsi1/data/kitti_lidar_sf/"
-    dataset_path = "../../data/rawkitti/"
-
-    cfg = load_config("../../configs/slim.yaml")
-
-    data_cfg = cfg["data"]["rawkitti"]
-    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
-    data_cfg["num_workers"] = 0
-    data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-
-    data_module.setup()
-    test_dl = data_module.train_dataloader()
-
-    for x, flow, T_gt in tqdm(test_dl):
-        pc_previous = x[0][0]
-        pc_current = x[1][0]
-
-        show_flow(pcl=pc_previous, flow=flow, pcl2=pc_current)
-    # COMPUTE NUM POINTS FOR MOVING DYNAMIC THRESHOLDS
-
-    import numpy as np
-    from tqdm import tqdm
-
-    grid_cell_size = 0.109375
-    dataset_path = "/home/pokorsi1/data/rawkitti/prepared"
-    # dataset_path = "../../data/rawkitti/"
-
-    data_module = KittiDataModule(
-        dataset_directory=dataset_path,
-        x_min=-35,
-        x_max=35,
-        y_min=-35,
-        y_max=35,
-        z_min=-1.4,
-        z_max=10,
-        batch_size=1,
-        has_test=False,
-        num_workers=0,
-        n_pillars_x=640,
-        n_points=None, apply_pillarization=True)
-
-    data_module.setup()
-    train_dl = data_module.train_dataloader()
-
-    SUM = np.array([0]).astype('Q')
-    SUM_min = np.array([0]).astype('Q')
-
-    for x, _, T_gt in tqdm(train_dl):
-        # Create pcl from features vector
-        num_points = x[0][0].shape[1]
-
-        if num_points < 10:
-            SUM_min += 1
-
-        SUM += num_points
-
-    print(f"Num points in train dataset : {SUM}")
-    print(f"Num samples in train dataset : {len(train_dl)}")
-    print(f"Num samples with points below 10 : {len(SUM_min)}")

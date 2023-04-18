@@ -51,14 +51,6 @@ def numerically_stable_quotient_lin_comb_exps_across_axis(num_exps, num_weights,
     assert (
         num_exps.ndim == num_weights.ndim == denom_exps.ndim == denom_weights.ndim
     )
-    num_shape = list(num_exps.shape)
-    assert num_shape == list(num_weights.shape)
-    num_shape[axis] = None
-    denom_shape = list(denom_exps.shape)
-    assert denom_shape == list(denom_weights.shape)
-    denom_shape[axis] = None
-    assert shapes_broadcastable(num_shape, denom_shape)
-
     # evaluates in numerically stable form expression of
     # (sum_i num_weight_i * exp(num_exp_i))  /  (sum_i denom_weight_i * exp(denom_exp_i))
     weight_masked_denom_exps = torch.where(
@@ -81,16 +73,17 @@ def numerically_stable_quotient_lin_comb_exps_across_axis(num_exps, num_weights,
 
 def normalized_sigmoid_sum(logits, mask=None):
     # sigmoid(x) = exp(-relu(-x)) * sigmoid(abs(x))
+    logits = logits.double() # TODO done because somehow convergence values to zeros
     neg_logit_part = -torch.nn.functional.relu(-logits)
     weights = torch.sigmoid(torch.abs(logits))
     if mask is not None:
         neg_logit_part = torch.where(mask, neg_logit_part, torch.zeros_like(neg_logit_part))
         weights = torch.where(mask, weights, torch.zeros_like(weights))
     return numerically_stable_quotient_lin_comb_exps_across_axis(
-        num_exps=neg_logit_part[..., None, :],
-        num_weights=weights[..., None, :],
-        denom_exps=neg_logit_part[..., :, None],
-        denom_weights=weights[..., :, None],
+        num_exps=neg_logit_part[..., :, None],
+        num_weights=weights[..., :, None],
+        denom_exps=neg_logit_part[..., None, :],
+        denom_weights=weights[..., None, :],
     )
 
 

@@ -1,1 +1,1 @@
-from .WaymoDataModule import WaymoDataModule
+from .waymodatamodule import WaymoDataModule

@@ -2,6 +2,8 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
+from visualization.plot import save_tensor_per_channel, save_tensor, save_pcl
+
 from .corrBlock import CorrBlock, coords_grid
 from .resnetEncoder import ResnetEncoder
 from .updateBlock import SlimUpdateBlock
@@ -116,6 +118,7 @@ class RAFT(pl.LightningModule):
         coords_t0, coords_t1 = self._initialize_flow(previous_pillar_embeddings, indexing="ij")
         bs, c, h, w = coords_t0.shape
         device = previous_pillar_embeddings.device
+        # save_tensor_per_channel(coords_t1, name="tmp", path="", labels=["X", "Y"], show=True)
 
         # Decide if to use default RAFT (vanilla) or modified to SLIM (single)
         # vanilla version do not process logits for static dynamic.
@@ -139,12 +142,13 @@ class RAFT(pl.LightningModule):
         corr_fn = CorrBlock(fmap1=t0_features,
                             fmap2=t1_features,
                             num_levels=self.corr_num_levels,
-                            radius=self.corr_search_radius)
+                            radius=self.corr_search_radius,
+                            indexing="ij")
 
         # Context encoder
         cnet = self._context_encoder_net(previous_pillar_embeddings)  # context features shape [BS, 160, 80, 80]
         net, inp = torch.split(cnet, [self.hdim, self.cdim], dim=1)
-        net = nn.functional.tanh(net)
+        net = torch.tanh(net)
         inp = nn.functional.relu(inp)
 
         intermediate_flow_predictions = []
@@ -240,9 +244,13 @@ class RAFT(pl.LightningModule):
         torch.Tensor: A tensor of shape (batch_size, 2, height, width) representing the optical flow in USFL convention.
         """
         # x,y - resolution of bev map
-        resolution_adapter = torch.tensor([70 / 640, 70 / 640], dtype=torch.float32, device=flow.device).reshape((1, -1, 1, 1))
-        flow_meters = torch.flip(flow, dims=[-1]) * resolution_adapter
-        return flow_meters
+        resolution_adapter = torch.tensor([70 / 640, 70 / 640], dtype=torch.float32, device=self.device).reshape((1, -1, 1, 1))
+        flow_meters = flow * resolution_adapter
+
+        x = flow_meters[:, 0:1]
+        y = flow_meters[:, 1:2]
+
+        return torch.cat((y,x), dim=1)
 
     def _upflow8(self, flow, n, mode='bilinear'):
         """

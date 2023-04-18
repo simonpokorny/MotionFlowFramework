@@ -1,22 +1,20 @@
-import numpy as np
 import pytorch_lightning as pl
 import torch
-from pytorch3d.ops.knn import knn_points
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from configs.utils import load_config
+from losses.flow import rigid_cycle_loss, NN_loss, smoothness_loss, static_point_loss
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
 from models.utils import init_weights
-#from visualization.plot import plot_2d_point_cloud, plot_tensor, visualise_tensor
-
-VISUALIZATION = False
 
 
 class SLIM(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, dataset):
         """
         Args:
             config (dict): Config is based on configs from configs/slim.yaml
+            dataset (str): type of the dataset
         """
         super(SLIM, self).__init__()
         self.save_hyperparameters()  # Store the constructor parameters into self.hparams
@@ -24,25 +22,32 @@ class SLIM(pl.LightningModule):
         self.config = config
 
         # just only example input to model (useful for tensorboard to make computional graph)
-        t1 = [torch.zeros([1, 20, 8]), torch.zeros([1, 20]), torch.zeros([1, 20])]
-        t0 = [torch.zeros([1, 20, 8]), torch.zeros([1, 20]), torch.zeros([1, 20])]
-        transf = torch.zeros([1, 4, 4]), torch.zeros([1, 4, 4])
-        gt_flow = torch.tensor([1,20,4])
-        #self.example_input_array = (t0, t1), transf
+        self.n_features = config["data"][dataset]["point_features"]
+        t1 = [torch.rand([1, 20, self.n_features]), torch.randint(0, 20, (1, 20)),
+              torch.ones((1, 20), dtype=torch.bool)]
+        t0 = [torch.rand([1, 20, self.n_features]), torch.randint(0, 20, (1, 20)),
+              torch.ones((1, 20), dtype=torch.bool)]
+        transf = torch.eye(4)[None, :]
+        # self.example_input_array = (t0, t1), transf
+
+        self.last_output = None
+        self._loss_BCE = torch.nn.BCELoss()
 
         self.save_hyperparameters()  # Store the constructor parameters into self.hparams
-        self.n_pillars_x = config["default"]["n_pillars_x"]
-        self.n_pillars_y = config["default"]["n_pillars_y"]
+        self.n_pillars_x = config["data"][dataset]["n_pillars_x"]
+        self.n_pillars_y = config["data"][dataset]["n_pillars_y"]
 
-        self._point_feature_net = PointFeatureNet(in_features=config["default"]["point_features"], out_features=64)
+        self._point_feature_net = PointFeatureNet(in_features=self.n_features, out_features=64)
         self._point_feature_net.apply(init_weights)
 
         self._pillar_feature_net = PillarFeatureNetScatter(n_pillars_x=self.n_pillars_x, n_pillars_y=self.n_pillars_y)
         self._pillar_feature_net.apply(init_weights)
 
+        # Raft init weights is done internally.
         self._raft = RAFT(**config["raft"])
+        # self._raft.apply(init_weights)
 
-        self._moving_dynamicness_threshold = MovingAverageThreshold(**config["moving_threshold"])
+        self._moving_dynamicness_threshold = MovingAverageThreshold(**config["moving_threshold"][dataset])
 
         self._decoder_fw = OutputDecoder(**config["decoder"])
         self._decoder_bw = OutputDecoder(**config["decoder"])
@@ -95,7 +100,7 @@ class SLIM(pl.LightningModule):
         #
         x = batch_grid[batch_mask][..., 0]
         y = batch_grid[batch_mask][..., 1]
-        pillar_mask[:, :, y, x] = 1
+        pillar_mask[:, :, x, y] = 1
         return pillar_mask
 
     def forward(self, x, transforms_matrices):
@@ -112,13 +117,18 @@ class SLIM(pl.LightningModule):
         # that do not have a fixed amount of points
         # x is a tuple of two lists representing the batches
         previous_batch, current_batch = x
-        # trans is a tensor representing transforms from previous to current fram (t0 -> t1)
+        # trans is a tensor representing transforms from previous to current frame (t0 -> t1)
 
-        P_T_C = transforms_matrices
-        C_T_P = torch.linalg.inv(P_T_C)
+        P_T_C = transforms_matrices.type(self.dtype)
+        C_T_P = torch.linalg.inv(P_T_C).type(self.dtype)
 
         previous_batch_pc, previous_batch_grid, previous_batch_mask = previous_batch
         current_batch_pc, current_batch_grid, current_batch_mask = current_batch
+
+        # Cut embedings to wanted number of features
+        previous_batch_pc = previous_batch_pc[:, :, :self.n_features]
+        current_batch_pc = current_batch_pc[:, :, :self.n_features]
+
         # For some reason the datatype of the input is not changed to correct precision
         previous_batch_pc = previous_batch_pc.type(self.dtype)
         current_batch_pc = current_batch_pc.type(self.dtype)
@@ -143,11 +153,11 @@ class SLIM(pl.LightningModule):
         # Input pc is (batch_size, max_n_points, features_in)
         # per each point, there are 8 features: [cx, cy, cz,  Δx, Δy, Δz, l0, l1], as stated in the paper
         previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
-                                                                                previous_batch_mask)
+                                                                                previous_batch_mask).type(self.dtype)
         # previous_batch_pc_embedding = [n_batch, N, 64]
         # Output pc is (batch_size, max_n_points, embedding_features)
         current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
-                                                                               current_batch_mask)
+                                                                               current_batch_mask).type(self.dtype)
 
         # Now we need to scatter the points into their 2D matrix
         # batch_pc_embeddings -> (batch_size, N, 64)
@@ -167,15 +177,6 @@ class SLIM(pl.LightningModule):
 
         # The grid map is ready in shape (BS, 64, 640, 640)
 
-        # Check VISUALIZATION
-        if VISUALIZATION:
-            pass
-            #plot_2d_point_cloud(current_batch_pc[0])
-            # plot_pillars(current_voxel_coordinates[0], 35, -35, 35, -35., 0.109375)
-            #plot_tensor(current_batch_pillar_mask[0][0])
-            #visualise_tensor(current_batch_pillar_mask)
-            # import matplotlib.pyplot as plt
-
         # 2. RAFT Encoder with motion flow backbone
         # Output for forward pass and backward pass
         # Each of the output is a list of num_iters x [1, 9, n_pillars_x, n_pillars_x]
@@ -183,9 +184,9 @@ class SLIM(pl.LightningModule):
         outputs_fw, outputs_bw = self._raft(pillar_embeddings)
 
         # Transformation matrix Current (t1) to Previous (t0)
-        #C_T_P = torch.linalg.inv(G_T_C) @ G_T_P
+        # C_T_P = torch.linalg.inv(G_T_C) @ G_T_P
         # Transformation matrix Previous (t0) to Current (t1)
-        #P_T_C = torch.linalg.inv(G_T_P) @ G_T_C
+        # P_T_C = torch.linalg.inv(G_T_P) @ G_T_C
 
         predictions_fw = []
         predictions_bw = []
@@ -193,32 +194,29 @@ class SLIM(pl.LightningModule):
         for it, (raft_output_0_1, raft_output_1_0) in enumerate(zip(outputs_fw, outputs_bw)):
             prediction_fw = self._decoder_fw(
                 network_output=raft_output_0_1,
-                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(P_T_C.device),  # TODO
+                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(self.device),
                 pc=previous_batch_pc,
-                pointwise_voxel_coordinates_fs=previous_voxel_coordinates,  # torch.randint(0, 640, (1, 95440, 2)),
-                pointwise_valid_mask=previous_batch_mask,  # torch.randint(0, 2, (1, 95440)).type(torch.bool),
+                pointwise_voxel_coordinates_fs=previous_voxel_coordinates,
+                pointwise_valid_mask=previous_batch_mask,
                 filled_pillar_mask=previous_batch_pillar_mask.type(torch.bool),
-                # torch.randint(0, 2, (1, 1, 640, 640)).type(torch.bool),
                 odom=P_T_C,  # TODO má tam být P_T_C ?
-                inv_odom=C_T_P)
+                inv_odom=C_T_P,
+                it=it)
 
             prediction_bw = self._decoder_bw(
                 network_output=raft_output_1_0,
-                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(P_T_C.device),
+                dynamicness_threshold=self._moving_dynamicness_threshold.value().to(self.device),
                 pc=current_batch_pc,
                 pointwise_voxel_coordinates_fs=current_voxel_coordinates,
                 pointwise_valid_mask=current_batch_mask,
                 filled_pillar_mask=current_batch_pillar_mask.type(torch.bool),
                 odom=C_T_P,
                 inv_odom=P_T_C,
-            )
+                it=it)
 
             predictions_fw.append(prediction_fw)
             predictions_bw.append(prediction_bw)
-
-            # TODO optimization of _moving_dynamicness_threshold
-
-        return predictions_fw, predictions_bw
+        return predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc
 
     def configure_optimizers(self):
         """
@@ -241,35 +239,19 @@ class SLIM(pl.LightningModule):
         self.lr = 0.0001
         optimizer = torch.optim.RMSprop(self.parameters(), lr=self.lr)
 
-        decay_ratio = 0.5
-        decay = lambda step: decay_ratio ** int(step / 6000)
+        decay = lambda step: 0.5 ** int(step / 6000)
         scheduler_decay = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[decay])
         scheduler_decay = {'scheduler': scheduler_decay,
                            'interval': 'step',  # or 'epoch'
                            'frequency': 1}
 
-        warm_up = lambda step: 0.01 ** (step / 2000) if (step < 2000) else 1
+        warm_up = lambda step: 0.0001 / (0.0001 ** (step / 2000)) if (step < 2000) else 1
         scheduler_warm_up = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[warm_up])
         scheduler_warm_up = {'scheduler': scheduler_warm_up,
                              'interval': 'step',  # or 'epoch'
                              'frequency': 1}
 
-        return [optimizer], [scheduler_decay, scheduler_warm_up]
-
-    def log_metrics(self, loss, metrics, phase):
-        # phase should be training, validation or test
-
-        if phase != "train":
-            raise NotImplementedError()
-            metrics_dict = {}
-            for metric in metrics:
-                for state in metrics[metric]:
-                    for label in metrics[metric][state]:
-                        metrics_dict[f'{phase}/{metric}/{state}/{label}'] = metrics[metric][state][label]
-
-            # Do not log the in depth metrics in the progress bar
-            # self.log(f'{phase}/loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log_dict(metrics_dict, on_step=True, on_epoch=True, prog_bar=False, logger=True)
+        return [optimizer], [scheduler_warm_up, scheduler_decay]
 
     def training_step(self, batch, batch_idx):
         """
@@ -282,25 +264,159 @@ class SLIM(pl.LightningModule):
         :param batch_idx: the id of this batch e.g. for discounting?
         :return:
         """
+        loss = []
+
+        # (batch_previous, batch_current), batch_targets
+        x, _, trans = batch
+
+        # Values for dynamicness threshold
+        epes_stat_err = torch.tensor([], device=self.device)
+        epes_dyn_err = torch.tensor([], device=self.device)
+        dynamicness = torch.tensor([], device=self.device)
+
+        # Forward pass of the slim
+        predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
+
+        # parsing the data from decoder
+        fw_pointwise = predictions_fw[-1][0]
+        fw_trans = fw_pointwise["static_aggr_trans_matrix"]
+
+        bw_pointwise = predictions_bw[-1][0]
+        bw_trans = bw_pointwise["static_aggr_trans_matrix"]
+
+        # Temporal split here todo if more samples in batch than 1, it needs to be verified
+        previous_pcl = (previous_batch_pc[..., :3] + previous_batch_pc[..., 3:6])  # from pillared to original pts
+        current_pcl = (current_batch_pc[..., :3] + current_batch_pc[..., 3:6])  # from pillared to original pts
+
+        """
+        ╔══════════════════════════════════╗
+        ║     COMPUTING A FORWARD LOSS     ║
+        ╚══════════════════════════════════╝
+        """
+
+        fw_raw_flow = fw_pointwise['dynamic_flow']  # flow from raft (raw flow)
+        fw_rigid_flow = fw_pointwise['static_aggr_flow']  # flow from kabsch
+
+        # nearest neighbor for dynamic flow
+        fw_raw_flow_nn_error, fw_raw_flow_nn_idx = NN_loss(previous_pcl + fw_raw_flow, current_pcl, reduction='none')
+
+        # nearest neighbor for rigid (kabsch) flow
+        fw_rigid_flow_nn_error, _ = NN_loss(previous_pcl + fw_rigid_flow, current_pcl, reduction='none')
+
+        # Update values for dynamicness thresholds
+        epes_stat_err = torch.cat((epes_stat_err, fw_rigid_flow_nn_error[0]))
+        epes_dyn_err = torch.cat((epes_dyn_err, fw_raw_flow_nn_error[0]))
+        dynamicness = torch.cat((dynamicness, fw_pointwise["dynamicness"][0, :, 0]))
+
+        # Artificial loss
+        is_static_artificial_label = fw_rigid_flow_nn_error < fw_raw_flow_nn_error
+        art_loss = self._loss_BCE(input=fw_pointwise["staticness"][:, :, 0], target=is_static_artificial_label.float())
+
+        # Smoothness loss
+        smooth_loss = smoothness_loss(p_i=previous_pcl, est_flow=fw_raw_flow, K=5, reduction='mean')
+
+        # Nearest neighbour loss for forward
+        nn_loss = (fw_raw_flow_nn_error + fw_rigid_flow_nn_error).mean()
+
+        # todo remove outlier percentage - Does not needed
+
+        # Static Points Loss # TODO i added detach on staticness learn it only from artificial loss
+        stat_loss = static_point_loss(previous_pcl, T=fw_trans, static_flow=fw_pointwise["static_flow"],
+                                      staticness=fw_pointwise["staticness"].detach(), reduction="mean")
+
+        # Rigid Cycle
+        cycle_loss = rigid_cycle_loss(previous_pcl, fw_trans, bw_trans)
+
+        # Metric calculation
+        # valid_flow_mask = torch.ones_like(y[..., 3], dtype=torch.bool, device=self.device)  # todo add
+        # epe, acc_strict, acc_relax = eval_flow(y[..., :3], fw_raw_flow_i)
+
+        loss.append(2. * nn_loss + 1. * cycle_loss + 1 * stat_loss + 0.1 * art_loss + 1 * smooth_loss)
+
+        """
+        ╔══════════════════════════════════╗
+        ║     COMPUTING A BACKWARD LOSS    ║
+        ╚══════════════════════════════════╝
+        """
+
+        bw_raw_flow = bw_pointwise['dynamic_flow']
+        bw_rigid_flow = bw_pointwise['static_aggr_flow']
+
+        bw_raw_flow_nn_error, _ = NN_loss(current_pcl + bw_raw_flow, previous_pcl, reduction='none')
+        bw_rigid_flow_nn_error, _ = NN_loss(current_pcl + bw_rigid_flow, previous_pcl, reduction='none')
+
+        # Update values for dynamicness thresholds
+        epes_stat_err = torch.cat((epes_stat_err, bw_rigid_flow_nn_error[0]))
+        epes_dyn_err = torch.cat((epes_dyn_err, bw_raw_flow_nn_error[0]))
+        dynamicness = torch.cat((dynamicness, bw_pointwise["dynamicness"][0, :, 0]))
+
+        # Artificial loss
+        is_static_artificial_label = bw_rigid_flow_nn_error < bw_raw_flow_nn_error
+        bw_art_loss = self._loss_BCE(input=bw_pointwise["staticness"][:, :, 0],
+                                     target=is_static_artificial_label.float())
+
+        # Smoothness loss
+        bw_smooth_loss = smoothness_loss(p_i=current_pcl, est_flow=bw_raw_flow, K=5, reduction='mean')
+
+        # NN Loss
+        bw_nn_loss = (bw_raw_flow_nn_error + bw_rigid_flow_nn_error).mean()
+
+        # Static Points Loss
+        bw_stat_loss = static_point_loss(current_pcl, T=bw_trans, static_flow=bw_pointwise["static_flow"],
+                                         staticness=bw_pointwise["staticness"].detach(), reduction="mean")
+
+        # Rigid Cycle
+        bw_cycle_loss = rigid_cycle_loss(current_pcl, bw_trans, fw_trans)
+
+        loss.append(
+            2. * bw_nn_loss + 1. * bw_cycle_loss + 1 * bw_stat_loss + 0.1 * bw_art_loss + 1 * bw_smooth_loss)
+
+        loss = loss[0] + loss[1]
+
+        # Update moving average threshold
+        self._moving_dynamicness_threshold.update(
+            epes_stat_flow=epes_stat_err,
+            epes_dyn_flow=epes_dyn_err,
+            dynamicness=dynamicness,
+            training=True)
+
+        # Log all loss
         phase = "train"
-        loss, metrics = self.general_step(batch, batch_idx, phase)
-        # Automatically reduces this metric after each epoch
-        self.log_metrics(loss, metrics, phase)
+        self.log(f'{phase}/fw/loss/nn', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
+        self.log(f'{phase}/fw/loss/rigid_cycle', cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+        self.log(f'{phase}/fw/loss/artificial', art_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+        self.log(f'{phase}/fw/loss/static_point_loss', stat_loss.item(), on_step=True, on_epoch=True,
+                 prog_bar=False, logger=True)
+        self.log(f'{phase}/fw/loss/smoothness', smooth_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+
+        self.log(f"{phase}/lr", self.optimizers().optimizer.param_groups[0]["lr"], on_step=True, logger=True)
+        self.log(f'{phase}/moving_threshold', self._moving_dynamicness_threshold.value(), on_step=True, on_epoch=True,
+                 prog_bar=False, logger=True)
+        self.log(f'{phase}/loss/', loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        self.log(f'{phase}/bw/loss/nn', bw_nn_loss.item(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
+        self.log(f'{phase}/bw/loss/rigid_cycle', bw_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+        self.log(f'{phase}/bw/loss/artificial', bw_art_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+        self.log(f'{phase}/bw/loss/static_point_loss', bw_stat_loss.item(), on_step=True, on_epoch=True,
+                 prog_bar=False, logger=True)
+        self.log(f'{phase}/bw/loss/smoothness', bw_smooth_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
+                 logger=True)
+
+        self.log(f'{phase}/fw/staticness', fw_pointwise["staticness"].mean().detach().cpu(), on_step=True,
+                 on_epoch=True,
+                 prog_bar=False, logger=True)
+        self.log(f'{phase}/fw/dynamicness', fw_pointwise["dynamicness"].mean().detach().cpu(), on_step=True,
+                 on_epoch=True, prog_bar=False, logger=True)
+
+        self.last_output = [previous_batch_pc.detach(), current_batch_pc.detach(), trans.detach(), fw_pointwise]
+
         # Return loss for backpropagation
         return loss
-
-    def validation_step(self, batch, batch_idx):
-        """
-        Similar to the train step.
-        Already has model.eval() and torch.nograd() set!
-        :param batch:
-        :param batch_idx:
-        :return:
-        """
-        phase = "val"
-        loss, metrics = self.general_step(batch, batch_idx, phase)
-        # Automatically reduces this metric after each epoch
-        self.log_metrics(loss, metrics, phase)
 
     def test_step(self, batch, batch_idx):
         """
@@ -310,203 +426,73 @@ class SLIM(pl.LightningModule):
         :param batch_idx:
         :return:
         """
-        phase = "test"
-        loss, metrics = self.general_step(batch, batch_idx, phase)
-        # Automatically reduces this metric after each epoch
-        self.log_metrics(loss, metrics, phase)
-
-    def update_dynamicness_threshold(self):
-        pass
-        """
-        if self.config["decoder"]["artificial_network_config"]["static_logit"] == "net":
-            assert self.config["decoder"]["artificial_network_config"]["dynamic_logit"] == "net"
-
-            #assert "dynamic" in eval_flow_types
-            static_key = "static"
-
-            if self.config["decoder"]["use_static_aggr_flow_for_aggr_flow"]:
-                static_key = "static_aggr"
-            #assert static_key in eval_flow_types
-
-            epes_stat_flow = []
-            epes_dyn_flow = []
-            dynamicness_scores = []
-            for flowdir in ["fw", "bw"]:
-                epes_stat_flow.append(
-                    knn_results[static_key]["%s_knn" % flowdir]["nearest_dist"][masks[flowdir]]
-                )
-                epes_dyn_flow.append(
-                    knn_results["dynamic"]["%s_knn" % flowdir]["nearest_dist"][masks[flowdir]]
-                )
-                dynamicness_scores.append(
-                    predictions[flowdir]["dynamicness"][masks[flowdir]]
-                )
-
-            self.moving_dynamicness_threshold.update(
-                epes_stat_flow=torch.cat(epes_stat_flow, dim=0),
-                epes_dyn_flow=torch.cat(epes_dyn_flow, dim=0),
-                moving_mask=None,
-                dynamicness_scores=torch.cat(dynamicness_scores, dim=0),
-                summaries=summaries,
-                training=training,
-            )
-            """
-
-    def general_step(self, batch, batch_idx, mode):
-        """
-        A function to share code between all different steps.
-        :param batch: the batch to perform on
-        :param batch_idx: the id of the batch
-        :param mode: str of "train", "val", "test". Useful if specific things are required.
-        :return:
-        """
         # (batch_previous, batch_current), batch_targets
-        x, y, trans = batch
-        y_hat = self(x, trans)
-        # x is a list of input batches with the necessary data
-        # For loss calculation we need to know which elements are actually present and not padding
-        # Therefore we need the mask of the current frame as batch tensor
-        # It is True for all points that just are NOT padded and of size (batch_size, max_points)
-        current_frame_masks = x[1][2]
-        # Remove all points that are padded
+        x, gt_flow, trans = batch
 
-        # dim 0 - forward and backward flow
-        # dim 1 - outputs based on raft iteration (len == nbr of iter)
-        # dim 2 - pointwise outputs, static aggr, dynamic threshold, bev outputs
+        # Forward pass of the slim
+        predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
 
-        fw_pointwise = y_hat[0][-1][0]  # -1 for last raft output?
-        fw_bev = y_hat[0][-1][3]
-        fw_trans = y_hat[0][-1][1]
-        bw_trans = y_hat[1][-1][1]
+        # parsing the data from decoder
+        fw_pointwise = predictions_fw[-1][0]
+        flow = fw_pointwise["aggr_flow"]
 
-        # todo backward pass as well
-        # todo if more samples in batch than 1, it needs to be verified
-        # NN
-        # forward
-        # .cuda() should be optimized
-        #p_i = x[0][0][..., :3].float()  # pillared - should be probably returned to previous form
-        p_i = x[0][0][..., :3]
-        # p_i = p_i[..., :3] + p_i[..., 3:6]# previous form
-        #p_j = x[1][0][..., :3].float()
-        p_j = x[1][0][..., :3]
-        # p_j = p_j[..., :3] + p_j[..., 3:6]# previous form
-
-        # this is ambiguous, not sure if there is difference between static_flow and dynamic_flow
-        # static ---> aggregated_static?
-        raw_flow_i = fw_pointwise['dynamic_flow']
-        rigid_flow = fw_pointwise['static_aggr_flow']
-
-        fw_raw_flow_nn = knn_points(p_i + raw_flow_i, p_j, lengths1=None, lengths2=None, K=1, norm=1)
-        fw_rigid_flow_nn = knn_points(p_i + rigid_flow, p_j, lengths1=None, lengths2=None, K=1, norm=1)
-
-        # todo remove outlier percentage
-        cham_x = fw_raw_flow_nn.dists[..., 0] + fw_rigid_flow_nn.dists[..., 0]  # (N, P1)
-
-        # nearest_to_p_j = fw_raw_flow_nn[1]
-        nn_loss = cham_x.max()
-
-        # Rigid Cycle
-        trans_p_i = torch.cat((p_i, torch.ones((len(p_i), p_i.shape[1], 1), device=p_i.device)), dim=2)
-        bw_fw_trans = bw_trans @ fw_trans - torch.eye(4, device=fw_trans.device)
-        # todo check this in visualization, if the points are transformed as in numpy
-        res_trans = torch.matmul(bw_fw_trans, trans_p_i.permute(0, 2, 1)).norm(dim=1)
-
-        rigic_cycle_loss = res_trans.mean()
-
-        # Artificial label loss - for previous time not second
-        def construct_batched_cuda_grid(pts, feature, x_min=-35, y_min=-35, grid_size=640):
-            '''
-            Assumes BS x N x CH (all frames same number of fake pts with zeros in the center)
-            :param pts:
-            :param feature:
-            :param cfg:
-            :return:
-            '''
-            BS = len(pts)
-            bs_ind = torch.cat(
-                [bs_idx * torch.ones(pts.shape[1], dtype=torch.long, device=pts.device) for bs_idx in range(BS)])
-
-            feature_grid = - torch.ones(BS, grid_size, grid_size, device=pts.device).long()
-
-            cell_size = torch.abs(2 * torch.tensor(x_min / grid_size))
-
-            coor_shift = torch.tile(torch.tensor((x_min, y_min), dtype=torch.float, device=pts.device), dims=(BS, 1, 1))
-
-            feature_ind = ((pts[:, :, :2] - coor_shift) / cell_size).long()
-
-            # breakpoint()
-            feature_grid[
-                bs_ind, feature_ind.flatten(0, 1)[:, 0], feature_ind.flatten(0, 1)[:, 1]] = feature.flatten().long()
-
-            return feature_grid
-
-        dynamic_states = (fw_raw_flow_nn.dists[..., 0] > fw_rigid_flow_nn.dists[..., 0]) + 1
-        art_label_grid = construct_batched_cuda_grid(p_i, dynamic_states, x_min=-35, y_min=-35, grid_size=640)
-
-        p_i_grid_class = fw_bev['class_logits']
-
-        # In paper, they have Sum instead of Mean, we should check original codes
-        art_CE = torch.nn.CrossEntropyLoss(ignore_index=-1)
-        artificial_class_loss = art_CE(p_i_grid_class, art_label_grid)
-
-        # y = y[current_frame_masks]
-        loss = 2. * nn_loss + 1. * rigic_cycle_loss + 0.1 * artificial_class_loss
-        # loss.backward()   # backward probehne
-
-        #print(
-        #    f"NN loss: {nn_loss.item():.4f}, Rigid cycle loss: {rigic_cycle_loss.item():.4f}, Artificial label loss: {artificial_class_loss.item():.4f}")
-
-        self.log(f'{mode}/loss/nn', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/loss/rigid_cycle', rigic_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/loss/artificial', artificial_class_loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/moving_threshold', self._moving_dynamicness_threshold.value(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
-
-        metrics = 0
-        # y_hat = y_hat[current_frame_masks]
-        # This will yield a (n_real_points, 3) tensor with the batch size being included already
-
-        # The first 3 dimensions are the actual flow. The last dimension is the class id.
-        # y_flow = y[:, :3]
-        # Loss computation
-        # labels = y[:, -1].int()  # Labels are actually integers so lets convert them
-        # Remove datapoints with no flow assigned (class -1)
-        # mask = labels != -1
-        # y_hat = y_hat[mask]
-        # y_flow = y_flow[mask]
-        # labels = labels[mask]
-        # loss, metrics = self.compute_metrics(y_flow, y_hat, labels)
-
-        return loss, metrics
+        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=0).mean()
 
 
 if __name__ == "__main__":
     ### CONFIG ###
     cfg = load_config("../configs/slim.yaml")
 
-    ### MODEL ####
-    model = SLIM(config=cfg)
-
     ### DATAMODULE ###
-    from datasets.waymoflow.WaymoDataModule import WaymoDataModule
+    from datasets.waymoflow.waymodatamodule import WaymoDataModule
+    from datasets.kitti.kittidatamodule import KittiDataModule
 
-    dataset_path = "../data/waymoflow_subset"
-    # dataset_path = "/Users/simonpokorny/mnt/data/waymo/raw/processed/training"
+    DATASET = "waymo"
     grid_cell_size = 0.109375
-    data_module = WaymoDataModule(dataset_directory=dataset_path,
-                                  grid_cell_size=grid_cell_size,
-                                  x_min=-35,
-                                  x_max=35,
-                                  y_min=-35,
-                                  y_max=35,
-                                  z_min=-10,
-                                  z_max=10,
-                                  batch_size=1,
-                                  has_test=False,
-                                  num_workers=0,
-                                  n_pillars_x=640,
-                                  n_points=None, apply_pillarization=True)
+    data_cfg = cfg["data"][DATASET]
+
+    ### MODEL ####
+    model = SLIM(config=cfg, dataset=DATASET)
+
+    if DATASET == "waymo":
+        dataset_path = "../data/waymoflow_subset"
+        # dataset_path = "/Users/simonpokorny/mnt/data/waymo/raw/processed/training"
+        data_cfg["point_features"] = 8
+        data_module = WaymoDataModule(dataset_directory=dataset_path,
+                                      grid_cell_size=grid_cell_size,
+                                      x_min=-35,
+                                      x_max=35,
+                                      y_min=-35,
+                                      y_max=35,
+                                      z_min=data_cfg["z_min"],
+                                      z_max=10,
+                                      batch_size=1,
+                                      has_test=False,
+                                      num_workers=0,
+                                      n_pillars_x=640,
+                                      n_points=None, apply_pillarization=True)
+    elif DATASET == "rawkitti":
+        dataset_path = "../data/rawkitti"
+        # dataset_path = "/Users/simonpokorny/mnt/data/waymo/raw/processed/training"
+        data_module = KittiDataModule(dataset_directory=dataset_path,
+                                      grid_cell_size=grid_cell_size,
+                                      x_min=-35,
+                                      x_max=35,
+                                      y_min=-35,
+                                      y_max=35,
+                                      z_min=data_cfg["z_min"],
+                                      z_max=10,
+                                      batch_size=1,
+                                      has_test=False,
+                                      num_workers=0,
+                                      n_pillars_x=640,
+                                      n_points=None, apply_pillarization=True)
+    else:
+        raise ValueError()
 
     ### TRAINER ###
+    loggers = TensorBoardLogger(save_dir="", log_graph=True, version=0)
+
     trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0)  # Add Trainer hparams if desired
     trainer.fit(model, data_module)
     # trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)

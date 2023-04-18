@@ -1,38 +1,22 @@
-default:
-  # n_pillars_x (int): The number of pillars in the x dimension of the voxel grid.
-  n_pillars_x: 640
-  # n_pillars_y (int): The number of pillars in the y dimension of the voxel grid.
-  n_pillars_y: 640
-  # point_features (int): The number of features in each point of the input point clouds.
-  # Waymo have 8
-  # rawkitti have 7
-  point_features: 7
-
-data:
-  x_min: -35
-  x_max: 35
-  y_min: -35
-  y_max: 35
-  z_min: -10
-  z_max: 10
-  n_pillars_x: 640
-  batch_size: 1
-  has_test: False
-  num_workers: 4
-  n_points: null
-  apply_pillarization: True
-  shuffle_train: True
-
 moving_threshold:
-  # unsupervised (bool): Flag indicating if the training is unsupervised or not.
-  unsupervised: True
-  # num_train_samples (int): Number of training samples. TODO Must be filled with correct samples
-  num_train_samples: 99999
-  # num_moving (int): Number of moving samples. In self-supervised manner, num of points in all train dataset.
-  # TODO Must be filled with correct samples
-  num_moving: 9999
-  # num_still (int, optional): Number of still samples. Required only for supervised training.
-  num_still: null # None
+  rawkitti:
+    # num_train_samples (int): Number of training samples.
+    num_train_samples: 47627
+    # num_points (int): Number of points in all train dataset.
+    #num_points: 390160384 # this number is for subsampled dataset
+    num_points: 2760236138 # <- this number is not for subsampled dataset
+  waymo:
+    # num_train_samples (int): Number of training samples.
+    num_train_samples: 126156
+    # num_points (int): Number of points in all train dataset.
+    num_points: 1033469952 # this number is for subsampling to 8192 pointss
+    #11049007741 #TODO
+  nuscenes:
+    # num_train_samples (int): Number of training samples.
+    num_train_samples: 33023
+    # num_points (int): Number of points in all train dataset.
+    num_points: 270565376 # this number is for subsampling to 8192 pointss
+    #11049007741 #TODO
 
 raft:
   # iters (int): The number of iterations for the optical flow algorithm in the network.
@@ -67,104 +51,133 @@ raft:
 
 decoder:
   # bool if to predict weight for static aggregation (weighted Kabsch)
-  predict_weight_for_static_aggregation: True
-  #
-  use_static_aggr_flow_for_aggr_flow: False
+  # if to use weights from for static aggregation TODO
+  # - False
+  # - softmax
+  # - sigmoid (They used normalized sigmoid)
+  predict_weight_for_static_aggregation: "sigmoid"
+  # if to use flow from kabsch or from raft
+  use_static_aggr_flow_for_aggr_flow: True
   use_dynamic_aggr_flow_for_aggr_flow: False
   # TODO ?? I am not sure
   dynamic_flow_is_non_rigid_flow: False
-
-
-  artificial_network_config:
-    # bool if to overwrite non-filled pillars with default flow
-    # default values for nonfilled pillars:
-    #  - static_flow: 0.0,
-    #  - dynamic_flow: 0.0,
-    #  - static_aggr_flow: 0.0,
-    overwrite_non_filled_pillars_with_default_flow: True
-    # default values for nonfilled pillars:
-    #  - disappearing_logit: -100.0,
-    #  - static_logit: -100.0 if self.static_logit is False else 0.0,
-    #  - dynamic_logit: 0.0 if self.dynamic_logit is True else -100.0,
-    #  - ground_logit : 0.0 if self.ground_logit is True else -100.0,
-    overwrite_non_filled_pillars_with_default_logits: True
-    # From which source the logits will be taken
-    #  - True, compute only the static logits.
-    #  - False, assume they're not needed.
-    #  - 'net', compute them as the network output.
-    #  - 'gt_label_based', >>> NotImplementedError()
-    #  - 'gt_flow_based', >>> NotImplementedError()
-    static_logit: "net"
-    # From which source the logits will be taken
-    # - True, compute only the dynamic logits.
-    # - False, assume they're not needed.
-    # – 'net', compute them as the network output.
-    # - 'gt_label_based', >>> NotImplementedError()
-    # - -gt_flow_based', >>> NotImplementedError()
-    dynamic_logit: "net"
-    # From which source the logits will be taken
-    # - True, compute only the dynamic logits.
-    # - False, assume they're not needed.
-    # – 'net', compute them as the network output.
-    # - 'gt_label_based', NotImplementedError()
-    ground_logit: False
-    # Param for Kabsch
-    use_epsilon_for_weighted_pc_alignment: False
-    # From which source the logits will be taken
-    # - True, compute only the dynamic logits. All values are set to 0
-    # - False, assume they're not needed. All values are set to -100
-    # – 'net', compute them as the network output.
-    # - 'gt', >>> NotImplementedError()
-    disappearing_logit: False
-    # From which source the flow will be taken
-    # - 'net'
-    # - 'gt',
-    # - 'zero'
-    static_flow: "net"
-    # From which source the flow will be taken
-    # - 'net'
-    # - 'gt',
-    # - 'zero'
-    dynamic_flow: "net"
-    # if to use weights from for static aggregation TODO
-    # - False
-    # - softmax
-    # - sigmoid (They used normalized sigmoid)
-    predict_weight_for_static_aggregation: False
-
-
-# taken from official repo
-losses:
-  dynamicness:
-    static_with_high_dyn_penalty__perc: 60.0
-    penalty_upper_perc: 0.0
-    penalty_lower_perc: 0.0
-  fw_bw_static_trafo_penalty_factor: 1.0
-  knn_loss_penalty_factor: 1.0
-  artificial_labels:
-    use_static_aggr_flow: True
-    cross_entropy_penalty: 0.0
-    weight_mode: constant
-    discrepancy_threshold: 0.05
-    mixture_distance: 0.05
-    gauss_widths: null
-    knn_mode: point
-  knn_on_dynamic_penalty: 0.0
-  knn_on_static_penalty: 0.0
-  knn_dist_measure: point
-  knn_loss:
-    L1_delta: 0.0
-    drop_outliers__perc: 0.0
-    fov_mode: mask_close_fov
-  occlusion_penalty_factor: 0.0
-  opposite_flow_penalty_factor: 0.0
-  static_flow_penalty_factor: 1.0
-  temporal_cls_consistency_penalty_factor: 0.0
-  smoothness_penalty_factor:
-    static: 0.0
-    dynamic: 0.0
-    aggregated: 0.0
+  # bool if to overwrite non-filled pillars with default flow
+  # default values for nonfilled pillars:
+  #  - static_flow: 0.0,
+  #  - dynamic_flow: 0.0,
+  #  - static_aggr_flow: 0.0,
+  overwrite_non_filled_pillars_with_default_flow: True
+  # default values for nonfilled pillars:
+  #  - disappearing_logit: -100.0,
+  #  - static_logit: -100.0 if self.static_logit is False else 0.0,
+  #  - dynamic_logit: 0.0 if self.dynamic_logit is True else -100.0,
+  #  - ground_logit : 0.0 if self.ground_logit is True else -100.0,
+  overwrite_non_filled_pillars_with_default_logits: True
+  # From which source the logits will be taken
+  #  - True, compute only the static logits.
+  #  - False, assume they're not needed.
+  #  - 'net', compute them as the network output.
+  #  - 'gt_label_based', >>> NotImplementedError()
+  #  - 'gt_flow_based', >>> NotImplementedError()
+  static_logit: "net"
+  # From which source the logits will be taken
+  # - True, compute only the dynamic logits.
+  # - False, assume they're not needed.
+  # – 'net', compute them as the network output.
+  # - 'gt_label_based', >>> NotImplementedError()
+  # - -gt_flow_based', >>> NotImplementedError()
+  dynamic_logit: "net"
+  # From which source the logits will be taken
+  # - True, compute only the dynamic logits.
+  # - False, assume they're not needed.
+  # – 'net', compute them as the network output.
+  # - 'gt_label_based', NotImplementedError()
+  ground_logit: False
+  # Param for Kabsch
+  # Use some small epsilon for Kabsch()
   use_epsilon_for_weighted_pc_alignment: False
-  num_neighbors_smoothness_penalty: 5
+  # From which source the logits will be taken
+  # - True, compute only the dynamic logits. All values are set to 0
+  # - False, assume they're not needed. All values are set to -100
+  # – 'net', compute them as the network output.
+  # - 'gt', >>> NotImplementedError()
+  disappearing_logit: False
+  # From which source the flow will be taken
+  # - 'net'
+  # - 'gt',
+  # - 'zero'
+  static_flow: "net"
+  # From which source the flow will be taken
+  # - 'net'
+  # - 'gt',
+  # - 'zero'
+  dynamic_flow: "net"
 
-
+data:
+  rawkitti:
+    # n_pillars_x (int): The number of pillars in the x dimension of the voxel grid.
+    n_pillars_x: 640
+    # n_pillars_y (int): The number of pillars in the y dimension of the voxel grid.
+    n_pillars_y: 640
+    # point_features (int): The number of features in each point of the input point clouds.
+    point_features: 6
+    x_min: -35
+    x_max: 35
+    y_min: -35
+    y_max: 35
+    z_min: -1.3 # 0.3 for waymo | -1.45 for raw kitti
+    z_max: 10
+    batch_size: 1
+    has_test: False
+    num_workers: 4
+    n_points: null
+    apply_pillarization: True
+    shuffle_train: True
+  waymo:
+    n_pillars_x: 640
+    n_pillars_y: 640
+    point_features: 8
+    x_min: -35
+    x_max: 35
+    y_min: -35
+    y_max: 35
+    z_min: 0.45 # 0.3 for waymo | -1.4 for raw kitti
+    z_max: 10
+    batch_size: 1
+    has_test: False
+    num_workers: 4
+    n_points: 8192
+    apply_pillarization: True
+    shuffle_train: True
+  kittisf:
+    n_pillars_x: 640
+    n_pillars_y: 640
+    point_features: 6
+    x_min: -50
+    x_max: 50
+    y_min: 0
+    y_max: 70
+    z_min: -1.4 # 0.3 for waymo | -1.4 for raw kitti
+    z_max: 10
+    batch_size: 1
+    has_test: True
+    num_workers: 4
+    n_points: null
+    apply_pillarization: True
+    shuffle_train: True
+  nuscenes:
+    n_pillars_x: 640
+    n_pillars_y: 640
+    point_features: 6
+    x_min: -35
+    x_max: 35
+    y_min: -35
+    y_max: 35
+    z_min: 0.5
+    z_max: 10
+    batch_size: 1
+    has_test: False
+    num_workers: 4
+    n_points: 8192
+    apply_pillarization: True
+    shuffle_train: True

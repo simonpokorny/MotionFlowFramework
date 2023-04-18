@@ -6,7 +6,7 @@ import numpy as np
 from datasets.base import BaseDataset
 
 
-class KittiRawDataset(BaseDataset):
+class KittiSceneFlowDataset(BaseDataset):
     def __init__(self, data_path,
                  point_cloud_transform=None,
                  drop_invalid_point_function=None,
@@ -18,7 +18,7 @@ class KittiRawDataset(BaseDataset):
                          n_points=n_points,
                          apply_pillarization=apply_pillarization)
 
-        self.files = glob.glob(os.path.join(data_path, "*/*/pairs/*.npz"))
+        self.files = glob.glob((os.path.join(data_path, "*.npz")))
         self.frame = None
 
     def __len__(self):
@@ -40,7 +40,13 @@ class KittiRawDataset(BaseDataset):
             t1_frame: pointcloud in shape [N, features]
         """
         self.frame = np.load(self.files[index])
-        return self.frame['pcl_t0'], self.frame['pcl_t1']
+
+        x, z, y = self.frame['pc1'].T
+        pc1 = np.stack((x, y, z)).T
+
+        x, z, y = self.frame['pc2'].T
+        pc2 = np.stack((x, y, z)).T
+        return pc1, pc2
 
     def _get_pose_transform(self, index):
         """
@@ -48,8 +54,7 @@ class KittiRawDataset(BaseDataset):
         Returns:
             t0_to_t1: in shape [4, 4]
         """
-        self.frame = np.load(self.files[index])
-        return np.linalg.inv(self.frame['odom_t0_t1'])
+        return None
 
     def _get_global_transform(self, index):
         """
@@ -62,4 +67,8 @@ class KittiRawDataset(BaseDataset):
         """
         Optional. For each dataset should be separetly written. Returns gt flow in shape [N, channels].
         """
-        return None
+        self.frame = np.load(self.files[index])
+
+        x, z, y = self.frame['flow'].T
+        flow = np.stack((x, y, z)).T
+        return flow

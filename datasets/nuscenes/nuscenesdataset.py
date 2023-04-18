@@ -6,7 +6,7 @@ import numpy as np
 from datasets.base import BaseDataset
 
 
-class KittiRawDataset(BaseDataset):
+class NuScenesDataset(BaseDataset):
     def __init__(self, data_path,
                  point_cloud_transform=None,
                  drop_invalid_point_function=None,
@@ -18,7 +18,7 @@ class KittiRawDataset(BaseDataset):
                          n_points=n_points,
                          apply_pillarization=apply_pillarization)
 
-        self.files = glob.glob(os.path.join(data_path, "*/*/pairs/*.npz"))
+        self.files = glob.glob(os.path.join(data_path, "*.npz"))
         self.frame = None
 
     def __len__(self):
@@ -32,6 +32,7 @@ class KittiRawDataset(BaseDataset):
     def _get_point_cloud_pair(self, index):
         """
         For each dataset should be separetly written. Returns two consecutive point clouds.
+        Pcl are swopped because odometry is also swapped.
         Args:
             index:
 
@@ -62,4 +63,6 @@ class KittiRawDataset(BaseDataset):
         """
         Optional. For each dataset should be separetly written. Returns gt flow in shape [N, channels].
         """
-        return None
+        return self.frame["flow_t0_t1"]
+
+

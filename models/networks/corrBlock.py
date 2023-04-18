@@ -16,10 +16,11 @@ except:
 
 
 class CorrBlock:
-    def __init__(self, fmap1, fmap2, num_levels=4, radius=4):
+    def __init__(self, fmap1, fmap2, num_levels=4, radius=4, indexing="ij"):
         self.num_levels = num_levels
         self.radius = radius
         self.corr_pyramid = []
+        self.indexing = indexing
 
         # all pairs correlation
         corr = CorrBlock.corr(fmap1, fmap2)
@@ -42,7 +43,7 @@ class CorrBlock:
             corr = self.corr_pyramid[i]
             dx = torch.linspace(-r, r, 2 * r + 1, device=coords.device)
             dy = torch.linspace(-r, r, 2 * r + 1, device=coords.device)
-            delta = torch.stack(torch.meshgrid(dy, dx), axis=-1)
+            delta = torch.stack(torch.meshgrid(dy, dx, indexing=self.indexing), axis=-1)
 
             centroid_lvl = coords.reshape(batch * h1 * w1, 1, 1, 2) / 2 ** i
             delta_lvl = delta.view(1, 2 * r + 1, 2 * r + 1, 2)

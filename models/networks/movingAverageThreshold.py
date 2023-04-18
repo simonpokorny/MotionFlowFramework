@@ -1,54 +1,46 @@
-import torch
 from typing import Tuple
 
+import pytorch_lightning as pl
+import torch
 
-class MovingAverageThreshold(torch.nn.Module):
+
+class MovingAverageThreshold(pl.LightningModule):
     def __init__(
             self,
-            unsupervised: bool,
             num_train_samples,
-            num_moving,
-            num_still=None,
+            num_points,
             resolution: int = 100000,
             start_value: float = 0.5,
             value_range: Tuple[float, float] = (0.0, 1.0)):
         """
         Args:
-            unsupervised (bool): Flag indicating if the training is unsupervised or not.
             num_train_samples (int): Number of training samples.
-            num_moving (int): Number of moving samples. In self-supervised manner, num of points in all train dataset.
-            num_still (int, optional): Number of still samples. Required only for supervised training.
-            resolution (int, optional): Resolution of the moving average.
+            num_points (int): Number of moving samples. In self-supervised manner, num of points in all train dataset.
+            resolution (int, optional): Resolution of the moving average (resolution times different threshold)
             start_value (float, optional): Starting value for the threshold.
             value_range (Tuple[float, float], optional): Range of the threshold.
 
         """
         super().__init__()
-        self.value_range = (value_range[0], value_range[1] - value_range[0])
-        self.resolution = resolution
-        self.num_moving = num_moving
-        assert unsupervised == (num_still is None), (
-            "training unsupervised requires num_still to be set to None, "
-            "supervised requires num_still to be set"
-        )
-        self.num_still = num_still
-        self.start_value = torch.tensor(start_value)
-        self.total = num_moving
-        if num_still is not None:
-            self.total += num_still
         assert num_train_samples > 0, num_train_samples
-        avg_points_per_sample = self.total / num_train_samples
-        self.update_weight = 1.0 / min(
-            2.0 * self.total, 5_000.0 * avg_points_per_sample
-        )  # update buffer roughly every 5k iterations, so 5k * points per sample for denominator
-        self.update_weight = torch.tensor(self.update_weight)
 
-        if num_still is not None:
-            self.moving_counter = torch.tensor(self.num_moving, requires_grad=False)
-            self.still_counter = torch.tensor(self.num_still, requires_grad=False)
+        self.num_points = torch.tensor(num_points, requires_grad=False)
+        value_range = torch.tensor([value_range[0], value_range[1] - value_range[0]], requires_grad=False)
+        resolution = torch.tensor(resolution, requires_grad=False)
+        start_value = torch.tensor(start_value, requires_grad=False)
+        value_range = torch.tensor(value_range, requires_grad=False)
+        avg_points_per_sample = num_points / num_train_samples
 
-        self.bias_counter = torch.tensor([0], requires_grad=False)
-        self.moving_average_importance = torch.zeros((self.resolution,), requires_grad=False, dtype=torch.float32)
+        # save variables as register buffer to save them and load in state_dict but  not to optimized them
+        self.register_buffer('moving_average_importance', torch.zeros((resolution,), requires_grad=False))
+        self.register_buffer('bias_counter', torch.tensor([0], requires_grad=False))
+
+        # update buffer roughly every 5k iterations, so 5k * points per sample for denominator
+        self.register_buffer('update_weight', torch.tensor(1.0 / min(2.0 * num_points, 5_000.0 * avg_points_per_sample),
+                                                           requires_grad=False))
+        self.register_buffer('resolution', resolution)
+        self.register_buffer('start_value', start_value)
+        self.register_buffer('value_range', value_range)
 
     def value(self):
         return torch.where(
@@ -59,124 +51,77 @@ class MovingAverageThreshold(torch.nn.Module):
 
     def _compute_bin_idxs(self, dynamicness_scores):
         idxs = torch.tensor(self.resolution * (dynamicness_scores - self.value_range[0]) / self.value_range[1],
-                            dtype=torch.int32)
+                            dtype=torch.int32, device=self.device)
 
         assert (idxs <= self.resolution).all()
         assert (idxs >= 0).all()
-        idxs = torch.minimum(idxs, torch.tensor(self.resolution - 1))
+        idxs = torch.minimum(idxs, torch.tensor(self.resolution - 1, device=self.device))
         assert (idxs < self.resolution).all()
         return idxs
 
-    def _compute_improvements(self, epes_stat_flow, epes_dyn_flow, moving_mask):
-        if self.num_still is None:
-            assert moving_mask is None
-            improvements = epes_stat_flow - epes_dyn_flow
-        else:
-            assert moving_mask is not None
-            assert len(moving_mask.shape) == 1
-            improvement_weight = torch.tensor(1.0, dtype=torch.float32) / torch.where(moving_mask, self.moving_counter, self.still_counter)
-            improvements = (epes_stat_flow - epes_dyn_flow) * improvement_weight
-        return improvements
-
     def _compute_optimal_score_threshold(self):
-        improv_over_thresh = torch.cat([torch.tensor([0]), torch.cumsum(self.moving_average_importance, dim=0)], dim=0)
+        improv_over_thresh = torch.cat([torch.tensor([0], device=self.device),
+                                        torch.cumsum(self.moving_average_importance, dim=0)], dim=0)
 
         best_improv = torch.min(improv_over_thresh)
-        avg_optimal_idx = torch.tensor(torch.where(best_improv == improv_over_thresh)[0]).float().mean()
+        avg_optimal_idx = torch.tensor(torch.where(best_improv == improv_over_thresh)[0],
+                                       device=self.device).float().mean()
 
         optimal_score_threshold = (self.value_range[0] + avg_optimal_idx * self.value_range[1] / self.resolution)
         return optimal_score_threshold
 
     def _update_values(self, cur_value, cur_weight):
-        cur_update_weight = (1.0 - self.update_weight) ** cur_weight
 
-        self.moving_average_importance *= cur_update_weight
-        self.moving_average_importance += (1.0 - cur_update_weight) * cur_value
-        self.bias_counter = self.bias_counter * cur_update_weight
-        self.bias_counter += 1.0 - cur_update_weight
+        cur_update_weight = (1.0 - self.update_weight * 100) ** cur_weight
+        self.moving_average_importance = (self.moving_average_importance * cur_update_weight) + \
+                                         ((1 - cur_update_weight) * cur_value)
+
+        self.bias_counter = self.bias_counter * cur_update_weight + 1.0 - cur_update_weight
 
     def update(
             self,
             epes_stat_flow,
             epes_dyn_flow,
-            moving_mask,
-            dynamicness_scores,
-            summaries,
+            dynamicness,
             training,
     ):
         assert isinstance(training, bool)
         if training:
             assert len(epes_stat_flow.shape) == 1
             assert len(epes_dyn_flow.shape) == 1
-            assert len(dynamicness_scores.shape) == 1
-            improvements = self._compute_improvements(epes_stat_flow, epes_dyn_flow, moving_mask)
-            bin_idxs = self._compute_bin_idxs(dynamicness_scores)
+            assert len(dynamicness.shape) == 1
+            epes_stat_flow = epes_stat_flow.detach().to(self.device)
+            epes_dyn_flow = epes_dyn_flow.detach().to(self.device)
+            dynamicness = dynamicness.detach().to(self.device)
+
+            bin_idxs = self._compute_bin_idxs(dynamicness)
+            improvements = epes_stat_flow - epes_dyn_flow
 
             # scatter nd
-            cur_result = torch.zeros((self.resolution,))
-            for i, idx in enumerate(bin_idxs):
-                cur_result[idx] += improvements[i]
+            cur_result = torch.zeros((self.resolution,), device=self.device)
+            for i, (idx, err) in enumerate(zip(bin_idxs, improvements)):
+                cur_result[idx] += err
             # end scatter nd
 
-            self._update_values(cur_result, torch.tensor(epes_stat_flow.size()))
-            if self.num_still is not None:
-                self.moving_counter += torch.sum(moving_mask)
-                self.still_counter += torch.sum(~moving_mask)
-            result = self.value()
+            self._update_values(cur_result, torch.tensor(epes_stat_flow.size(), device=self.device))
 
-            """
-            if summaries["metrics_eval"]:
-                torch.summary.scalar("dynamicness_threshold", result)
-                torch.summary.scalar("dynamicness_update_amount", self.bias_counter)
-                if self.num_still is not None:
-                    torch.summary.scalar(
-                        "moving_percentage",
-                        torch.cast(self.moving_counter, torch.float32)
-                        / torch.cast(self.moving_counter + self.still_counter, torch.float32),
-                    )
-            """
+            result = self.value()
             return result
         return self.value()
-
 
 
 if __name__ == "__main__":
     dynamicness = torch.tensor([0.1, 0.2, 0.4, 0.5, 0.6, 0.8])
     epes_stat_flow = torch.tensor([0.3, 0.3, 0.3, 0.3, 0.3, 0.3])
     epes_dyn_flow = torch.tensor([0.6, 0.4, 0.0, 0.8, 0.4, 0.0])
-    threshold_layer = MovingAverageThreshold(
-        unsupervised=True,
-        num_train_samples=2,
-        num_moving=6091776000 // 3,
-        #num_still=6091776000 * 2 // 3,
-    )
+    THRS = MovingAverageThreshold(
+        num_train_samples=10,
+        num_points=8,
+        resolution=100000)
     # threshold_layer = MovingAverageThreshold(4, 8)
     for _i in range(10):
-        print(threshold_layer.value())
-        opt_thresh = threshold_layer.update(
+        print(THRS.value())
+        opt_thresh = THRS.update(
             epes_stat_flow,
-            epes_dyn_flow,
-            None,#torch.tensor([True, False, True, False, False, False]),
             dynamicness,
-            {"metrics_eval": True},
-            training=True,
-        )
-        print(opt_thresh)
-        opt_thresh = threshold_layer.update(
-            epes_stat_flow,
-            epes_stat_flow + 1,
-            None,#torch.tensor([True, False, True, False, False, False]),
-            dynamicness,
-            {"metrics_eval": True},
-            training=True,
-        )
-        print(opt_thresh)
-        opt_thresh = threshold_layer.update(
-            epes_stat_flow,
-            epes_stat_flow - 1,
-            None, #torch.tensor([True, False, True, False, False, False]),
-            dynamicness,
-            {"metrics_eval": True},
-            training=False,
-        )
-        print(opt_thresh)
+            training=True)
