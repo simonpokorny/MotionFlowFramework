@@ -39,8 +39,8 @@ class CustomDataset(BaseDataset):
             index:
 
         Returns:
-            t1_frame: pointcloud in shape [1, N, features]
             t0_frame: pointcloud in shape [1, N, features]
+            t1_frame: pointcloud in shape [1, N, features]
         """
 
         raise NotImplementedError()
