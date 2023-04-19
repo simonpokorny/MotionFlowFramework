@@ -4,6 +4,7 @@
 - Kitti Scene Flow
 - NuScenes
 - Waymo
+- RandomDataset
 
 ### Adding a new dataset
 

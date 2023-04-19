@@ -2,8 +2,8 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from configs.utils import load_config
 from losses.flow import rigid_cycle_loss, NN_loss, smoothness_loss, static_point_loss
+from metrics import AccS, AccR, AEE, AEE_50_50, Outl, ROutl
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
 from models.utils import init_weights
@@ -45,12 +45,19 @@ class SLIM(pl.LightningModule):
 
         # Raft init weights is done internally.
         self._raft = RAFT(**config["raft"])
-        # self._raft.apply(init_weights)
 
         self._moving_dynamicness_threshold = MovingAverageThreshold(**config["moving_threshold"][dataset])
 
         self._decoder_fw = OutputDecoder(**config["decoder"])
         self._decoder_bw = OutputDecoder(**config["decoder"])
+
+        # Metrics for loging the performance of the network
+        self.accr = AccR()
+        self.accs = AccS()
+        self.outl = Outl()
+        self.routl = ROutl()
+        self.aee = AEE()
+        self.aee_50_50 = AEE_50_50(scanning_frequency=10)
 
     def _transform_point_cloud_to_embeddings(self, pc, mask):
         """
@@ -154,7 +161,8 @@ class SLIM(pl.LightningModule):
         # per each point, there are 8 features: [cx, cy, cz,  Δx, Δy, Δz, l0, l1], as stated in the paper
         try:
             previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
-                                                                                    previous_batch_mask).type(self.dtype)
+                                                                                    previous_batch_mask).type(
+                self.dtype)
             # previous_batch_pc_embedding = [n_batch, N, 64]
             # Output pc is (batch_size, max_n_points, embedding_features)
             current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
@@ -439,20 +447,49 @@ class SLIM(pl.LightningModule):
 
         # parsing the data from decoder
         fw_pointwise = predictions_fw[-1][0]
-        flow = fw_pointwise["aggr_flow"]
+        flow = fw_pointwise["aggregated_flow"]
+        previous_pcl = (previous_batch_pc[..., :3] + previous_batch_pc[..., 3:6])  # from pillared to original pts
 
-        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=0).mean()
+        # Computing all metrics
+        self.accr(flow=flow, gt_flow=gt_flow)
+        self.accs(flow=flow, gt_flow=gt_flow)
+        self.outl(flow=flow, gt_flow=gt_flow)
+        self.routl(flow=flow, gt_flow=gt_flow)
+        self.aee(flow=flow, gt_flow=gt_flow)
+
+        if (trans[0] == torch.eye(4)).all():
+            self.have_odometry = False
+        else:
+            self.aee_50_50(flow=flow, gt_flow=gt_flow, odometry=trans, pcl_t0=previous_pcl)
+            self.have_odometry = True
+
+    def test_epoch_end(self, outputs):
+        # Loging all metrics
+        phase = "test"
+        self.log(f'{phase}/accr', self.accr.compute())
+        self.log(f'{phase}/accs', self.accs.compute())
+        self.log(f'{phase}/outl', self.outl.compute())
+        self.log(f'{phase}/routl', self.routl.compute())
+        self.log(f'{phase}/aee', self.aee.compute())
+
+        if self.have_odometry:
+            avg, stat, dyn = self.aee_50_50.compute()
+            self.log(f'{phase}/aee_50_50/average', avg)
+            self.log(f'{phase}/aee_50_50/static', stat)
+            self.log(f'{phase}/aee_50_50/dynamic',dyn)
+
 
 
 if __name__ == "__main__":
     DATASET = "kittisf"
+    trained_on = "rawkitti"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
     from configs import load_config
     from datasets import KittiDataModule, WaymoDataModule, KittiSceneFlowDataModule, NuScenesDataModule
 
     cfg = load_config("../configs/slim.yaml")
-    model = SLIM(config=cfg, dataset=DATASET)
+    model = SLIM(config=cfg, dataset=trained_on)
     model = model.load_from_checkpoint("epoch=1-step=75000.ckpt")
 
     data_cfg = cfg["data"][DATASET]
@@ -478,9 +515,9 @@ if __name__ == "__main__":
     ### TRAINER ###
     loggers = TensorBoardLogger(save_dir="", log_graph=True, version=0)
 
-    trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0)  # Add Trainer hparams if desired
+    trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0, logger=loggers)  # Add Trainer hparams if desired
 
-    #trainer.fit(model, data_module)
+    # trainer.fit(model, data_module)
     trainer.test(model, data_module)
     # trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
 

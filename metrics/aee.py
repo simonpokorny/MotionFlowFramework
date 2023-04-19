@@ -21,10 +21,10 @@ class AEE(Metric):
             gt_flow (torch.Tensor): The ground truth flow, with shape [BS, N, 3].
         """
         assert flow.shape == gt_flow.shape, f"Predicted flow have different shape in comparison with gt flow"
-        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=0)
+        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=2)
 
-        self.errorL2 += err
-        self.total += gt_flow.numel()
+        self.errorL2 += err.sum().long()
+        self.total += gt_flow.shape[1]
 
     def compute(self):
         """

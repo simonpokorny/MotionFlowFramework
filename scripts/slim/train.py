@@ -54,7 +54,6 @@ def parse_args():
 
 if __name__ == "__main__":
     import warnings
-
     warnings.filterwarnings("ignore")
 
     args = parse_args()

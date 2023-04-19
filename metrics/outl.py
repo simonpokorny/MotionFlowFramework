@@ -23,11 +23,11 @@ class Outl(Metric):
         """
         assert flow.shape == gt_flow.shape, f"Predicted flow have different shape in comparison with gt flow"
 
-        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=0)
-        relative_err = err / torch.linalg.vector_norm(gt_flow, ord=2, dim=0)
+        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=2)
+        relative_err = err / torch.linalg.vector_norm(gt_flow, ord=2, dim=2)
 
-        self.outliers += torch.logical_or(err > 0.3, relative_err > 0.3)
-        self.total += gt_flow.numel()
+        self.outliers += torch.logical_or(err > 0.3, relative_err > 0.3).sum()
+        self.total += gt_flow.shape[1]
 
     def compute(self):
         """
