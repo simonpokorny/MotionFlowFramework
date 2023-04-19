@@ -152,12 +152,15 @@ class SLIM(pl.LightningModule):
         # Pass the whole batch of point clouds to get the embedding for each point in the cloud
         # Input pc is (batch_size, max_n_points, features_in)
         # per each point, there are 8 features: [cx, cy, cz,  Δx, Δy, Δz, l0, l1], as stated in the paper
-        previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
-                                                                                previous_batch_mask).type(self.dtype)
-        # previous_batch_pc_embedding = [n_batch, N, 64]
-        # Output pc is (batch_size, max_n_points, embedding_features)
-        current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
-                                                                               current_batch_mask).type(self.dtype)
+        try:
+            previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
+                                                                                    previous_batch_mask).type(self.dtype)
+            # previous_batch_pc_embedding = [n_batch, N, 64]
+            # Output pc is (batch_size, max_n_points, embedding_features)
+            current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
+                                                                                   current_batch_mask).type(self.dtype)
+        except:
+            return None, None, None, None
 
         # Now we need to scatter the points into their 2D matrix
         # batch_pc_embeddings -> (batch_size, N, 64)
@@ -276,6 +279,8 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
+        if predictions_fw is None:
+            return torch.zeros((1,), device=self.device, requires_grad=True)
 
         # parsing the data from decoder
         fw_pointwise = predictions_fw[-1][0]
@@ -440,61 +445,43 @@ class SLIM(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    ### CONFIG ###
+    DATASET = "kittisf"
+    assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
+
+    from configs import load_config
+    from datasets import KittiDataModule, WaymoDataModule, KittiSceneFlowDataModule, NuScenesDataModule
+
     cfg = load_config("../configs/slim.yaml")
-
-    ### DATAMODULE ###
-    from datasets.waymoflow.waymodatamodule import WaymoDataModule
-    from datasets.kitti.kittidatamodule import KittiDataModule
-
-    DATASET = "waymo"
-    grid_cell_size = 0.109375
-    data_cfg = cfg["data"][DATASET]
-
-    ### MODEL ####
     model = SLIM(config=cfg, dataset=DATASET)
+    model = model.load_from_checkpoint("epoch=1-step=75000.ckpt")
 
-    if DATASET == "waymo":
-        dataset_path = "../data/waymoflow_subset"
-        # dataset_path = "/Users/simonpokorny/mnt/data/waymo/raw/processed/training"
-        data_cfg["point_features"] = 8
-        data_module = WaymoDataModule(dataset_directory=dataset_path,
-                                      grid_cell_size=grid_cell_size,
-                                      x_min=-35,
-                                      x_max=35,
-                                      y_min=-35,
-                                      y_max=35,
-                                      z_min=data_cfg["z_min"],
-                                      z_max=10,
-                                      batch_size=1,
-                                      has_test=False,
-                                      num_workers=0,
-                                      n_pillars_x=640,
-                                      n_points=None, apply_pillarization=True)
-    elif DATASET == "rawkitti":
-        dataset_path = "../data/rawkitti"
-        # dataset_path = "/Users/simonpokorny/mnt/data/waymo/raw/processed/training"
-        data_module = KittiDataModule(dataset_directory=dataset_path,
-                                      grid_cell_size=grid_cell_size,
-                                      x_min=-35,
-                                      x_max=35,
-                                      y_min=-35,
-                                      y_max=35,
-                                      z_min=data_cfg["z_min"],
-                                      z_max=10,
-                                      batch_size=1,
-                                      has_test=False,
-                                      num_workers=0,
-                                      n_pillars_x=640,
-                                      n_points=None, apply_pillarization=True)
+    data_cfg = cfg["data"][DATASET]
+    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
+    data_cfg["num_workers"] = 0
+
+    if DATASET == 'waymo':
+        dataset_path = "../data/waymoflow"
+        data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
+    elif DATASET == 'rawkitti':
+        dataset_path = "../data/rawkitti/"
+        data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
+    elif DATASET == "kittisf":
+        dataset_path = "../data/kittisf/"
+        data_module = KittiSceneFlowDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size,
+                                               **data_cfg)
+    elif DATASET == "nuscenes":
+        dataset_path = "../data/nuscenes"
+        data_module = NuScenesDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
     else:
-        raise ValueError()
+        raise ValueError('Dataset {} not available yet'.format(DATASET))
 
     ### TRAINER ###
     loggers = TensorBoardLogger(save_dir="", log_graph=True, version=0)
 
     trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0)  # Add Trainer hparams if desired
-    trainer.fit(model, data_module)
+
+    #trainer.fit(model, data_module)
+    trainer.test(model, data_module)
     # trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
     print("done")
