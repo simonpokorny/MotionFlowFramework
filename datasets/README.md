@@ -93,7 +93,7 @@ class CustomDataModule(BaseDataModule):
                  shuffle_train=True,
                  point_features=7):
 
-        super().__init__(dataset=KittiRawDataset,
+        super().__init__(dataset=CustomDataset,
                          dataset_directory=dataset_directory,
                          grid_cell_size=grid_cell_size,
                          x_min=x_min,
