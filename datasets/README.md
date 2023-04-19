@@ -69,7 +69,7 @@ class CustomDataset(BaseDataset):
 If dataset do not contain ground-truth flow or something else, just rewrite the function which the dataset contain. 
 
 
-For datamodule it is neccessary to write this class with correct name and put to super().__init__ the correct dataset.
+For datamodule it is neccessary to write this class with correct name and put to ```super().__init__``` the correct dataset.
 
 ```python
 class CustomDataModule(BaseDataModule):
