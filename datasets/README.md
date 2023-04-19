@@ -39,8 +39,8 @@ class CustomDataset(BaseDataset):
             index:
 
         Returns:
-            t0_frame: pointcloud in shape [1, N, features]
-            t1_frame: pointcloud in shape [1, N, features]
+            t0_frame: pointcloud in shape [N, features]
+            t1_frame: pointcloud in shape [N, features]
         """
 
         raise NotImplementedError()
@@ -49,7 +49,7 @@ class CustomDataset(BaseDataset):
         """
         For each dataset should be separetly written. Returns transforamtion from t0 to t1
         Returns:
-            t0_to_t1: in shape [1, 4, 4]
+            t0_to_t1: in shape [4, 4]
         """
         raise NotImplementedError()
 
@@ -62,7 +62,7 @@ class CustomDataset(BaseDataset):
 
     def _get_flow(self, index):
         """
-        Optional. For each dataset should be separetly written. Returns gt flow in shape [1, N, channels].
+        Optional. For each dataset should be separetly written. Returns gt flow from frame t0 in shape [N, channels].
         """
         return None
 ```
