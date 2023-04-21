@@ -1,14 +1,16 @@
 import os
 import sys
+
+sys.path.append('../../')
+
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, ArgumentTypeError
 from pathlib import Path
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+from datasets import KittiSceneFlowDataModule, KittiDataModule, WaymoDataModule, NuScenesDataModule
 
 from callbacks import SaveViz
-
-sys.path.append('../../')
 
 from configs import load_config
 from models.SLIM import SLIM
@@ -58,6 +60,7 @@ def get_datamodule(dataset: str, data_path: str):
 
     if dataset == 'waymo':
         dataset_path = data_path if data_path is not None else "../../data/waymoflow_subset"
+        data_cfg["has_test"] = True
         data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
     elif dataset == 'rawkitti':
         dataset_path = data_path if data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
@@ -98,7 +101,7 @@ if __name__ == "__main__":
     print(f"Saved under version num : {version}")
 
     callbacks = [SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
-                         every_n_test_steps=1)]
+                         every_n_test_steps=500)]
 
     loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs",
                                  log_graph=True, version=version),
@@ -107,7 +110,10 @@ if __name__ == "__main__":
     # trainer with no validation loop
     trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
                          enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=1,
-                         logger=loggers, callbacks=callbacks)
+                         logger=loggers)#, callbacks=callbacks)
 
+    #breakpoint()
+    import torch
+    model._moving_dynamicness_threshold.bias_counter = torch.tensor(1)
     trainer.test(model, data_module)
     print("done")

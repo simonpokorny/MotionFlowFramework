@@ -1,5 +1,6 @@
-from torchmetrics import Metric
 import torch
+from torchmetrics import Metric
+
 
 class AccR(Metric):
     """
@@ -10,6 +11,7 @@ class AccR(Metric):
     The AccS is the ratio of the number of points where either the EE or the relative error is less than 0.1 and
     the total number of points in the ground truth flow.
     """
+
     def __init__(self):
         super().__init__()
         self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
@@ -23,7 +25,8 @@ class AccR(Metric):
         """
         assert flow.shape == gt_flow.shape, f"Predicted flow have different shape in comparison with gt flow"
 
-        err = torch.linalg.vector_norm((gt_flow - flow), ord=2, dim=2)
+        # Computing the error only in xy coordinates
+        err = torch.linalg.vector_norm(((gt_flow - flow))[:, :, :2], ord=2, dim=2)
         relative_err = err / torch.linalg.vector_norm(gt_flow, ord=2, dim=2)
 
         self.correct += torch.logical_or(err < 0.1, relative_err < 0.1).sum()
@@ -35,4 +38,3 @@ class AccR(Metric):
             The AccS as a float32 tensor.
         """
         return self.correct.float() / self.total
-

@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-    DATASET = "waymo"
+    DATASET = "nuscenes"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
     from tqdm import tqdm
@@ -36,13 +36,15 @@ if __name__ == "__main__":
     else:
         train_dl = data_module.test_dataloader()
 
+    #train_dl = data_module.test_dataloader()
+
     for x, flow, T_gt in tqdm(train_dl):
         # Create pcl from features vector
         pc_previous = x[0][0]
         pc_current = x[1][0]
         flow = flow[:, :, :3]
 
-        save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
+        #save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
         # T_gt = torch.linalg.inv(T_gt)
         # save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
 

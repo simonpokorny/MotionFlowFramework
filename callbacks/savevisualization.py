@@ -59,7 +59,7 @@ class SaveViz(Callback):
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         if batch_idx % self.every_n_test_steps == 0:
-            self.viz_path = self.path.parent / "visualization_eval" / f"batch_idx_{batch_idx}"
+            self.viz_path = self.path / f"eval_batch_idx_{batch_idx}"
             os.makedirs(self.viz_path)
 
             if pl_module.last_output is not None:
@@ -78,7 +78,7 @@ class SaveViz(Callback):
                                colors=["r", "g", "b"],
                                labels=["static", "dynamic", "ground"])
 
-                num_points_to_visualize = 5000
+                num_points_to_visualize = 10000
                 save_pcl_flow(pcl0=previous_pcl, pcl1=current_pcl, flow=fw_pointwise["dynamic_flow"],
                               odom=P_T_C, path=self.viz_path, name=f"flow_dynamic", show=self.show,
                               num_points=num_points_to_visualize)

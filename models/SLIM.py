@@ -159,16 +159,13 @@ class SLIM(pl.LightningModule):
         # Pass the whole batch of point clouds to get the embedding for each point in the cloud
         # Input pc is (batch_size, max_n_points, features_in)
         # per each point, there are 8 features: [cx, cy, cz,  Δx, Δy, Δz, l0, l1], as stated in the paper
-        try:
-            previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
-                                                                                    previous_batch_mask).type(
-                self.dtype)
-            # previous_batch_pc_embedding = [n_batch, N, 64]
-            # Output pc is (batch_size, max_n_points, embedding_features)
-            current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
-                                                                                   current_batch_mask).type(self.dtype)
-        except:
-            return None, None, None, None
+        previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
+                                                                                previous_batch_mask).type(
+            self.dtype)
+        # previous_batch_pc_embedding = [n_batch, N, 64]
+        # Output pc is (batch_size, max_n_points, embedding_features)
+        current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
+                                                                               current_batch_mask).type(self.dtype)
 
         # Now we need to scatter the points into their 2D matrix
         # batch_pc_embeddings -> (batch_size, N, 64)
@@ -250,19 +247,23 @@ class SLIM(pl.LightningModule):
         self.lr = 0.0001
         optimizer = torch.optim.RMSprop(self.parameters(), lr=self.lr)
 
-        decay = lambda step: 0.5 ** int(step / 6000)
-        scheduler_decay = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[decay])
-        scheduler_decay = {'scheduler': scheduler_decay,
-                           'interval': 'step',  # or 'epoch'
-                           'frequency': 1}
+        scheduler_decay = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.5)
+        #scheduler_decay = {'scheduler': scheduler_decay,
+        #                   'interval': 'step',  # or 'epoch'
+        #                   'frequency': 1}
 
         warm_up = lambda step: 0.0001 / (0.0001 ** (step / 2000)) if (step < 2000) else 1
         scheduler_warm_up = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[warm_up])
-        scheduler_warm_up = {'scheduler': scheduler_warm_up,
-                             'interval': 'step',  # or 'epoch'
-                             'frequency': 1}
+        #scheduler_warm_up = {'scheduler': scheduler_warm_up,
+        #                     'interval': 'step',  # or 'epoch'
+        #                     'frequency': 1}
 
-        return [optimizer], [scheduler_warm_up, scheduler_decay]
+        scheduler = torch.optim.lr_scheduler.ChainedScheduler([scheduler_decay, scheduler_warm_up])
+        scheduler = {'scheduler': scheduler,
+                     'interval': 'step',  # or 'epoch'
+                     'frequency': 1}
+
+        return [optimizer], [scheduler]
 
     def training_step(self, batch, batch_idx):
         """
@@ -287,7 +288,9 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
-        if predictions_fw is None:
+        try:
+            predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
+        except:
             return torch.zeros((1,), device=self.device, requires_grad=True)
 
         # parsing the data from decoder
@@ -449,6 +452,8 @@ class SLIM(pl.LightningModule):
         fw_pointwise = predictions_fw[-1][0]
         flow = fw_pointwise["aggregated_flow"]
         previous_pcl = (previous_batch_pc[..., :3] + previous_batch_pc[..., 3:6])  # from pillared to original pts
+        self.last_output = [previous_batch_pc.detach(), current_batch_pc.detach(), trans.detach(), fw_pointwise]
+
 
         # Computing all metrics
         self.accr(flow=flow, gt_flow=gt_flow)
@@ -457,7 +462,7 @@ class SLIM(pl.LightningModule):
         self.routl(flow=flow, gt_flow=gt_flow)
         self.aee(flow=flow, gt_flow=gt_flow)
 
-        if (trans[0] == torch.eye(4)).all():
+        if (trans[0] == torch.eye(4, device=self.device)).all():
             self.have_odometry = False
         else:
             self.aee_50_50(flow=flow, gt_flow=gt_flow, odometry=trans, pcl_t0=previous_pcl)
@@ -478,11 +483,15 @@ class SLIM(pl.LightningModule):
             self.log(f'{phase}/aee_50_50/static', stat)
             self.log(f'{phase}/aee_50_50/dynamic',dyn)
 
+            num_stat, num_dyn = self.aee_50_50.compute_total()
+            self.log(f'{phase}/aee_50_50/static_percentage', num_stat)
+            self.log(f'{phase}/aee_50_50/dynamic_percentage', num_dyn)
+
 
 
 if __name__ == "__main__":
-    DATASET = "kittisf"
-    trained_on = "rawkitti"
+    DATASET = "nuscenes"
+    trained_on = "nuscenes"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
     from configs import load_config
@@ -490,7 +499,7 @@ if __name__ == "__main__":
 
     cfg = load_config("../configs/slim.yaml")
     model = SLIM(config=cfg, dataset=trained_on)
-    model = model.load_from_checkpoint("epoch=1-step=75000.ckpt")
+    #model = model.load_from_checkpoint("waymo100k.ckpt")
 
     data_cfg = cfg["data"][DATASET]
     grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
@@ -517,7 +526,7 @@ if __name__ == "__main__":
 
     trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0, logger=loggers)  # Add Trainer hparams if desired
 
-    # trainer.fit(model, data_module)
+    trainer.fit(model, data_module)
     trainer.test(model, data_module)
     # trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
 

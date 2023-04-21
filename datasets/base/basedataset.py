@@ -75,7 +75,7 @@ class BaseDataset(Dataset):
         if t0_to_t1 is None:
             t0_to_t1 = np.eye(4)
 
-        return (t0_frame, t1_frame), flows, t0_to_t1
+        return (t0_frame, t1_frame), flows, t0_to_t1.astype(np.float32)
 
     def __len__(self):
         """

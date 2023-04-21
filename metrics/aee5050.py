@@ -15,23 +15,22 @@ class AEE_50_50(Metric):
 
     def __init__(self, scanning_frequency: int = 10):
         super().__init__()
-        self.add_state("stat_err", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("dyn_err", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("stat_err", default=torch.tensor(0, dtype=torch.double), dist_reduce_fx="sum")
+        self.add_state("dyn_err", default=torch.tensor(0, dtype=torch.double), dist_reduce_fx="sum")
 
         self.add_state("stat_total", default=torch.tensor(0), dist_reduce_fx="sum")
         self.add_state("dyn_total", default=torch.tensor(0), dist_reduce_fx="sum")
 
         self.m_thresh = 0.05 * (10 / scanning_frequency)
 
-    @staticmethod
-    def cart2hom(pcl):
+    def cart2hom(self, pcl):
         assert pcl.ndim == 3 and pcl.shape[2] == 3, "PointCloud should be in shape [BS, N, 3]"
         BS, N, _ = pcl.shape
-        return torch.cat((pcl, torch.ones((BS, N, 1))), dim=2)
+        return torch.cat((pcl, torch.ones((BS, N, 1), device=self.device)), dim=2)
 
     @staticmethod
     def hom2cart(pcl):
-        assert pcl.ndim == 3 and pcl.shape[2] == 3, "PointCloud should be in shape [BS, N, 4]"
+        assert pcl.ndim == 3 and pcl.shape[2] == 4, "PointCloud should be in shape [BS, N, 4]"
         return pcl[:, :, :3] / pcl[:, :, 3:4]
 
     def compute_gt_stat_flow(self, pcl_t0: torch.Tensor, odometry: torch.Tensor):
@@ -57,6 +56,11 @@ class AEE_50_50(Metric):
         assert odometry.ndim == 3 and odometry.shape[2] == 4, "Odometry should be in shape [BS, 4, 4]"
 
         gt_static_flow = self.compute_gt_stat_flow(pcl_t0=pcl_t0, odometry=odometry)
+
+        gt_static_flow = gt_static_flow[:, :, :2]
+        gt_flow = gt_flow[:, :, :2]
+        flow = flow[:, :, :2]
+
         gt_err = torch.linalg.vector_norm((gt_static_flow - gt_flow), ord=2, dim=2)
         static_mask = gt_err < self.m_thresh
         dynamic_mask = torch.logical_not(static_mask)
@@ -81,4 +85,8 @@ class AEE_50_50(Metric):
         """
         static_error = self.stat_err.float() / self.stat_total
         dynamic_error = self.dyn_err.float() / self.dyn_total
-        return (static_error + dynamic_error)/2, static_error, dynamic_error
+        return (static_error + dynamic_error) / 2, static_error, dynamic_error
+
+    def compute_total(self):
+        total = self.stat_total + self.dyn_total
+        return self.stat_total / total, self.dyn_total / total

@@ -2,6 +2,7 @@ import os.path
 import pickle
 
 import numpy as np
+import torch
 
 from datasets.base import BaseDataset
 
@@ -86,5 +87,25 @@ class WaymoDataset(BaseDataset):
         Optional. For each dataset should be separetly written. Returns gt flow in shape [N, channels].
         """
         previous_frame = np.load(os.path.join(self.data_path, self.metadata['look_up_table'][index][0][0]))['frame']
-        flows = - (previous_frame[:, -4:-1] / 10)
+        flows = - (previous_frame[:, -4:-1])
+        odometry = self._get_pose_transform(index)
+        gt_static_flow = self.compute_gt_stat_flow(previous_frame, odometry)
+        flows = flows / 10 + gt_static_flow
         return flows
+
+    def cart2hom(self, pcl):
+        assert pcl.ndim == 2 and pcl.shape[1] == 3, "PointCloud should be in shape [BS, N, 3]"
+        N, _ = pcl.shape
+        return np.concatenate((pcl, np.ones((N, 1))), axis=1)
+
+    def hom2cart(self, pcl):
+        assert pcl.ndim == 2 and pcl.shape[1] == 4, "PointCloud should be in shape [BS, N, 4]"
+        return pcl[:, :3] / pcl[:, 3:4]
+
+    def compute_gt_stat_flow(self, pcl_t0, odometry):
+        pcl_t0 = pcl_t0[:, :3]
+        pcl_t1 = self.cart2hom(pcl_t0).T
+        pcl_t1 = (odometry @ pcl_t1).T
+        pcl_t1 = self.hom2cart(pcl_t1)
+        flow = pcl_t1 - pcl_t0
+        return flow

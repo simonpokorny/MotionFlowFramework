@@ -42,9 +42,11 @@ class KittiSceneFlowDataset(BaseDataset):
         self.frame = np.load(self.files[index])
 
         x, z, y = self.frame['pc1'].T
+        y = y - 35
         pc1 = np.stack((x, y, z)).T
 
         x, z, y = self.frame['pc2'].T
+        y = y - 35
         pc2 = np.stack((x, y, z)).T
         return pc1, pc2
 

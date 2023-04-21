@@ -69,4 +69,49 @@ class NuScenesDataModule(BaseDataModule):
                          shuffle_train=shuffle_train)
 
 
+if __name__ == "__main__":
+    DATASET = "nuscenes"
+    assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
+    from tqdm import tqdm
+
+    from configs import load_config
+    from visualization.plot import show_flow, save_trans_pcl
+
+    cfg = load_config("../../configs/slim.yaml")
+
+    data_cfg = cfg["data"][DATASET]
+    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
+    data_cfg["num_workers"] = 0
+
+
+    dataset_path = "../../data/nuscenes"
+    dataset_path = "/home/pokorsi1/data/nuscenes/preprocess"
+    data_module = NuScenesDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
+
+
+    data_module.setup()
+    train_dl = data_module.train_dataloader()
+
+    #train_dl = data_module.test_dataloader()
+
+    for x, flow, T_gt in tqdm(train_dl):
+        # Create pcl from features vector
+        pc_previous = x[0][0]
+        pc_current = x[1][0]
+        flow = flow[:, :, :3]
+
+        assert x[0][2].sum() > 10 and x[1][2].sum() > 10, f"unsufficient number of points"
+        assert x[0][1].shape[1] == x[0][2].shape[1] == x[0][1].shape[1], "fail 1"
+        assert x[1][1].shape[1] == x[1][2].shape[1] == x[1][1].shape[1], "fail 1"
+        #assert
+
+
+        #save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
+        # T_gt = torch.linalg.inv(T_gt)
+        # save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
+
+        #show_flow(pcl=pc_previous, flow=flow, pcl2=pc_current)
+
+
+    print("done")

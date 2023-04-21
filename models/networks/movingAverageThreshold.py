@@ -44,7 +44,7 @@ class MovingAverageThreshold(pl.LightningModule):
 
     def value(self):
         return torch.where(
-            self.bias_counter > 0.0,
+            self.bias_counter > 0,
             self._compute_optimal_score_threshold(),
             self.start_value,
         )
@@ -76,7 +76,8 @@ class MovingAverageThreshold(pl.LightningModule):
         self.moving_average_importance = (self.moving_average_importance * cur_update_weight) + \
                                          ((1 - cur_update_weight) * cur_value)
 
-        self.bias_counter = self.bias_counter * cur_update_weight + 1.0 - cur_update_weight
+        #self.bias_counter = self.bias_counter * cur_update_weight + 1.0 - cur_update_weight
+        self.bias_counter = torch.tensor(1, device=self.device)
 
     def update(
             self,
