@@ -20,4 +20,4 @@ ml PyTorch-Lightning/1.8.4-foss-2022a-CUDA-11.7.0
 ml PyTorch/1.12.1-foss-2022a-CUDA-11.7.0
 
 
-python -u train.py --dataset nuscenes --accelerator gpu --data_path /home/pokorsi1/data/nuscenes/preprocess
+python -u train.py --dataset nuscenes --accelerator gpu --data_path /home/pokorsi1/data/nuscenes/preprocess_new/

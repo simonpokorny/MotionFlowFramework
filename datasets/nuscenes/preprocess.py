@@ -8,19 +8,26 @@ import numpy as np
 from tqdm import tqdm
 
 from nuscenes_parser import NuScenesParser, get_label_map_from_file#, nusc_add_nn_segmentation_flow_for_t1
+from nuscenes.utils.splits import create_splits_scenes
 
 
-def create_and_write_sample(sample, path: str, nusc: NuScenesParser) -> str:
+def create_and_write_sample(sample, path: str, nusc: NuScenesParser, splits: dict) -> str:
     meta = {"framerate__Hz": 10.0}
 
     scene = nusc.get("scene", sample["scene_token"])
     sample_tokens = nusc.get_token_list("sample", sample["token"], recurse_by=-1)
     sample_idx = sample_tokens.index(sample["token"])
     filename = "%s_%02d_%s" % (scene["name"], sample_idx, sample["token"])
-    filename = osp.join(path, filename)
 
-    if osp.isfile(filename + ".tfrecords"):
-        return "exists"
+    if scene["name"] in splits["train"]:
+        filename = osp.join(path, "train", filename)
+    elif scene["name"] in splits["val"]:
+        filename = osp.join(path, "test", filename)
+    else:
+        return "Not in scenes"
+
+
+
 
     #nusc2carla_labelmap = get_label_map_from_file("nuscenes", "nuscenes2carla")
     #nusc2statdynground_labelmap = get_label_map_from_file(
@@ -167,10 +174,14 @@ def main(path_out: str, nusc_root: str, version=str):
         dataroot=nusc_root,
         verbose=True,
     )
+    scene_splits = create_splits_scenes()
+
     results = {}
     count_results = {}
+
+
     for sample in tqdm(nusc.sample):
-        cur_result = create_and_write_sample(sample, path_out, nusc)
+        cur_result = create_and_write_sample(sample, path_out, nusc, splits=scene_splits)
         results[sample["token"]] = cur_result
         if cur_result not in count_results:
             count_results[cur_result] = 0
@@ -188,4 +199,4 @@ if __name__ == "__main__":
     load_config("label_mapping.yaml")
 
     #main(path_out="../../data/nuscenes/preprocess/", nusc_root="../../data/nuscenes", version="v1.0-trainval")
-    main(path_out="/home/pokorsi1/data/nuscenes/preprocess_trainval", nusc_root="/home/pokorsi1/data/nuscenes", version="v1.0-trainval")
+    main(path_out="/home/pokorsi1/data/nuscenes/preprocess_new", nusc_root="/home/pokorsi1/data/nuscenes", version="v1.0-trainval")

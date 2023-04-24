@@ -177,7 +177,7 @@ data:
     z_max: 10
     batch_size: 1
     has_test: False
-    num_workers: 4
+    num_workers: 0
     n_points: 8192
     apply_pillarization: True
     shuffle_train: True

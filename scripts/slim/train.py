@@ -94,10 +94,12 @@ if __name__ == "__main__":
     except:
         version = 0
 
+    model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/nuscenes/checkpoints/version_1/epoch=0-step=8000.ckpt")
+
     print(f"Saved under version num : {version}")
 
     callbacks = [ModelCheckpoint(dirpath=EXPERIMENT_PATH / args.dataset / "checkpoints" / f"version_{version}",
-                                 save_weights_only=True, every_n_train_steps=1000, save_last=True, save_top_k=-1)]
+                                 save_weights_only=False, every_n_train_steps=1000, save_last=True, save_top_k=-1)]
 
                 # SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
                 #         every_n_train_steps=1000)]

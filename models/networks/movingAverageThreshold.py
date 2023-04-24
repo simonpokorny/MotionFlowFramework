@@ -33,7 +33,7 @@ class MovingAverageThreshold(pl.LightningModule):
 
         # save variables as register buffer to save them and load in state_dict but  not to optimized them
         self.register_buffer('moving_average_importance', torch.zeros((resolution,), requires_grad=False))
-        self.register_buffer('bias_counter', torch.tensor([0], requires_grad=False))
+        self.register_buffer('bias_counter', torch.tensor(0, requires_grad=False))
 
         # update buffer roughly every 5k iterations, so 5k * points per sample for denominator
         self.register_buffer('update_weight', torch.tensor(1.0 / min(2.0 * num_points, 5_000.0 * avg_points_per_sample),

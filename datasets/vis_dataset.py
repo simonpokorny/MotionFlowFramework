@@ -1,8 +1,9 @@
 if __name__ == "__main__":
-    DATASET = "nuscenes"
+    DATASET = "waymo"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
     from tqdm import tqdm
+    import open3d as o3d
 
     from configs import load_config
     from visualization.plot import show_flow, save_trans_pcl
@@ -43,6 +44,13 @@ if __name__ == "__main__":
         pc_previous = x[0][0]
         pc_current = x[1][0]
         flow = flow[:, :, :3]
+
+        pc_previous_numpy = (pc_previous[0, :, :3] + pc_previous[0, :, 3:6]).detach().cpu().numpy()
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pc_previous_numpy)
+
+        # Save PointCloud as PLY file
+        o3d.io.write_point_cloud("pcl.ply", pcd)
 
         #save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
         # T_gt = torch.linalg.inv(T_gt)
