@@ -17,6 +17,12 @@ moving_threshold:
     # num_points (int): Number of points in all train dataset.
     num_points: 270565376 # this number is for subsampling to 8192 pointss
     #11049007741 #TODO
+  petr_dataset:
+    # num_train_samples (int): Number of training samples.
+    num_train_samples: 126156
+    # num_points (int): Number of points in all train dataset.
+    num_points: 1033469952 # this number is for subsampling to 8192 pointss
+    #11049007741 #TODO
 
 raft:
   # iters (int): The number of iterations for the optical flow algorithm in the network.
@@ -113,71 +119,5 @@ decoder:
   # - 'zero'
   dynamic_flow: "net"
 
-data:
-  rawkitti:
-    # n_pillars_x (int): The number of pillars in the x dimension of the voxel grid.
-    n_pillars_x: 640
-    # n_pillars_y (int): The number of pillars in the y dimension of the voxel grid.
-    n_pillars_y: 640
-    # point_features (int): The number of features in each point of the input point clouds.
-    point_features: 6
-    x_min: -35
-    x_max: 35
-    y_min: -35
-    y_max: 35
-    z_min: -1.3 # 0.3 for waymo | -1.45 for raw kitti
-    z_max: 10
-    batch_size: 1
-    has_test: False
-    num_workers: 4
-    n_points: 8192
-    apply_pillarization: True
-    shuffle_train: True
-  waymo:
-    n_pillars_x: 640
-    n_pillars_y: 640
-    point_features: 8 # maximum 8
-    x_min: -35
-    x_max: 35
-    y_min: -35
-    y_max: 35
-    z_min: 0.45 # 0.3 for waymo | -1.4 for raw kitti
-    z_max: 10
-    batch_size: 1
-    has_test: True
-    num_workers: 4
-    n_points: 8192
-    apply_pillarization: True
-    shuffle_train: True
-  kittisf:
-    n_pillars_x: 640
-    n_pillars_y: 640
-    point_features: 6
-    x_min: -35
-    x_max: 35
-    y_min: -35
-    y_max: 35
-    z_min: -1.3 # 0.3 for waymo | -1.4 for raw kitti
-    z_max: 10
-    batch_size: 1
-    has_test: True
-    num_workers: 4
-    n_points: 8192
-    apply_pillarization: True
-    shuffle_train: True
-  nuscenes:
-    n_pillars_x: 640
-    n_pillars_y: 640
-    point_features: 6 # maximum 7
-    x_min: -35
-    x_max: 35
-    y_min: -35
-    y_max: 35
-    z_min: 0.5
-    z_max: 10
-    batch_size: 1
-    has_test: False
-    num_workers: 0
-    n_points: 8192
-    apply_pillarization: True
-    shuffle_train: True
+
+

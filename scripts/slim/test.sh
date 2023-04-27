@@ -10,12 +10,13 @@ ml PyTorch/1.12.1-foss-2022a-CUDA-11.7.0
 
 python -u test.py \
   --accelerator gpu \
-  --data_path /home/pokorsi1/data/waymo_flow/preprocess \
-  --dataset waymo \
+  --data_path /home/pokorsi1/data/nuscenes/preprocess_new \
+  --dataset nuscenes \
   --dataset_trained_on waymo \
-  --resume_from_checkpoint /home/pokorsi1/motion_learning/scripts/slim/experiments/waymo/checkpoints/version_2/epoch=0-step=100000.ckpt
+  --resume_from_checkpoint experiments/waymo/checkpoints/version_3/epoch=0-step=100000.ckpt
 
-
+# /home/pokorsi1/data/waymo_flow/preprocess
+# /home/pokorsi1/data/kitti_lidar_sf
 
 
 #python -u test.py \

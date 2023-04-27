@@ -9,9 +9,8 @@ from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 
 sys.path.append('../../')
 
-from callbacks import SaveViz
-from configs import load_config
-from datasets import NuScenesDataModule, WaymoDataModule, KittiDataModule
+from configs import get_config
+from datasets import get_datamodule
 from models.SLIM import SLIM
 
 
@@ -39,7 +38,7 @@ def parse_args():
                         help="Path to ckpt file to resume from. Parameter from PytorchLightning Trainer.")
     # Data related arguments
     parser.add_argument('--dataset', default='waymo',
-                        choices=["waymo", 'rawkitti', 'nuscenes'],
+                        choices=["waymo", 'rawkitti', 'nuscenes', 'petr_dataset'],
                         help="Dataset Type to train on.")
     parser.add_argument('--data_path', default=None, type=str, help="Specify the data dir.")
     parser.add_argument('--fast_dev_run', type=str2bool, nargs='?', const=True, default=False,
@@ -61,48 +60,33 @@ if __name__ == "__main__":
     os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
     # Loading config
-    cfg = load_config("../../configs/slim.yaml")
+    cfg = get_config("../../configs/slim.yaml", dataset=args.dataset)
 
     # Creating the model
     model = SLIM(config=cfg, dataset=args.dataset)
 
+    # Load from checkpoint
     if args.resume_from_checkpoint is not None:
         raise NotImplementedError()
 
-    if args.dataset == 'waymo':
-        dataset_path = args.data_path if args.data_path is not None else "../../data/waymoflow_subset"
-        data_cfg = cfg["data"][args.dataset]
-        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
-        data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
+    # model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/nuscenes/checkpoints/version_1/epoch=0-step=8000.ckpt")
+    # model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/waymo/checkpoints/version_3/last.ckpt")
 
-    elif args.dataset == 'rawkitti':
-        dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/rawkitti/prepared"
-        data_cfg = cfg["data"][args.dataset]
-        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
-        data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-
-    elif args.dataset == "nuscenes":
-        dataset_path = args.data_path if args.data_path is not None else "/home/pokorsi1/data/nuscenes/preprocess"
-        data_cfg = cfg["data"][args.dataset]
-        grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
-        data_module = NuScenesDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-    else:
-        raise ValueError('Dataset {} not available yet'.format(args.dataset))
+    # Get datamodule
+    data_module = get_datamodule(dataset=args.dataset, data_path=args.data_path, cfg=cfg)
 
     try:
         version = len(os.listdir(os.path.join(EXPERIMENT_PATH, args.dataset, "lightning_logs")))
     except:
         version = 0
 
-    model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/nuscenes/checkpoints/version_1/epoch=0-step=8000.ckpt")
-
     print(f"Saved under version num : {version}")
 
     callbacks = [ModelCheckpoint(dirpath=EXPERIMENT_PATH / args.dataset / "checkpoints" / f"version_{version}",
                                  save_weights_only=False, every_n_train_steps=1000, save_last=True, save_top_k=-1)]
 
-                # SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
-                #         every_n_train_steps=1000)]
+    # SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
+    #         every_n_train_steps=1000)]
 
     loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs",
                                  log_graph=True, version=version),
@@ -111,12 +95,6 @@ if __name__ == "__main__":
     # trainer with no validation loop
     trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
                          enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=10,
-                         logger=loggers, callbacks=callbacks)  # , limit_train_batches=1)
-
-    # Trainer where we will validete every 1000 iters (used as test during training)
-    # trainer = pl.Trainer(val_check_interval=1000, devices=1, accelerator=args.accelerator, enable_checkpointing=True,
-    #                     fast_dev_run=args.fast_dev_run, max_epochs=3,
-    #                     logger=loggers, callbacks=callbacks)  # , limit_train_batches=1)
-
+                         logger=loggers, callbacks=callbacks)
 
     trainer.fit(model, data_module)

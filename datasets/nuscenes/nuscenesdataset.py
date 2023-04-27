@@ -41,6 +41,7 @@ class NuScenesDataset(BaseDataset):
             t1_frame: pointcloud in shape [N, features]
         """
         self.frame = np.load(self.files[index])
+        print(self.files[index])
         return self.frame['pcl_t0'], self.frame['pcl_t1']
 
     def _get_pose_transform(self, index):

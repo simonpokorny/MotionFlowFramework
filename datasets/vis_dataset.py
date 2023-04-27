@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-    DATASET = "waymo"
+    DATASET = "kittisf"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
     from tqdm import tqdm
@@ -52,7 +52,7 @@ if __name__ == "__main__":
         # Save PointCloud as PLY file
         o3d.io.write_point_cloud("pcl.ply", pcd)
 
-        #save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
+        save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
         # T_gt = torch.linalg.inv(T_gt)
         # save_trans_pcl(T_gt, pc_previous, pc_current, " ", "synchronized_pcl", show=True)
 

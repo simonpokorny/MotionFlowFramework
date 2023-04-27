@@ -184,6 +184,7 @@ class SLIM(pl.LightningModule):
         # Flatten into (batch_size * 2, 64, 512, 512) for encoder forward pass.
 
         # The grid map is ready in shape (BS, 64, 640, 640)
+        return None, None, None,None
 
         # 2. RAFT Encoder with motion flow backbone
         # Output for forward pass and backward pass
@@ -288,6 +289,8 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
+        if predictions_bw == None:
+            return torch.zeros((1,), device=self.device, requires_grad=True)
         try:
             predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
         except:
@@ -447,7 +450,7 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
-
+        return None
         # parsing the data from decoder
         fw_pointwise = predictions_fw[-1][0]
         flow = fw_pointwise["aggregated_flow"]
@@ -468,24 +471,23 @@ class SLIM(pl.LightningModule):
             self.aee_50_50(flow=flow, gt_flow=gt_flow, odometry=trans, pcl_t0=previous_pcl)
             self.have_odometry = True
 
-    def test_epoch_end(self, outputs):
-        # Loging all metrics
         phase = "test"
-        self.log(f'{phase}/accr', self.accr.compute())
-        self.log(f'{phase}/accs', self.accs.compute())
-        self.log(f'{phase}/outl', self.outl.compute())
-        self.log(f'{phase}/routl', self.routl.compute())
-        self.log(f'{phase}/aee', self.aee.compute())
+        self.log(f'{phase}/accr', self.accr.compute(), on_step=True, on_epoch=True)
+        self.log(f'{phase}/accs', self.accs.compute(), on_step=True, on_epoch=True)
+        self.log(f'{phase}/outl', self.outl.compute(), on_step=True, on_epoch=True)
+        self.log(f'{phase}/routl', self.routl.compute(), on_step=True, on_epoch=True)
+        self.log(f'{phase}/aee', self.aee.compute(), on_step=True, on_epoch=True)
 
         if self.have_odometry:
             avg, stat, dyn = self.aee_50_50.compute()
-            self.log(f'{phase}/aee_50_50/average', avg)
-            self.log(f'{phase}/aee_50_50/static', stat)
-            self.log(f'{phase}/aee_50_50/dynamic',dyn)
+            self.log(f'{phase}/aee_50_50/average', avg, on_step=True, on_epoch=True)
+            self.log(f'{phase}/aee_50_50/static', stat, on_step=True, on_epoch=True)
+            self.log(f'{phase}/aee_50_50/dynamic',dyn, on_step=True, on_epoch=True)
 
             num_stat, num_dyn = self.aee_50_50.compute_total()
-            self.log(f'{phase}/aee_50_50/static_percentage', num_stat)
-            self.log(f'{phase}/aee_50_50/dynamic_percentage', num_dyn)
+            self.log(f'{phase}/aee_50_50/static_percentage', num_stat, on_step=True, on_epoch=True)
+            self.log(f'{phase}/aee_50_50/dynamic_percentage', num_dyn, on_step=True, on_epoch=True)
+
 
 
 

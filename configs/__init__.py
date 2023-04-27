@@ -1,1 +1,1 @@
-from .utils import load_config
+from .utils import get_config
