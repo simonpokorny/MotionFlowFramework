@@ -184,7 +184,6 @@ class SLIM(pl.LightningModule):
         # Flatten into (batch_size * 2, 64, 512, 512) for encoder forward pass.
 
         # The grid map is ready in shape (BS, 64, 640, 640)
-        return None, None, None,None
 
         # 2. RAFT Encoder with motion flow backbone
         # Output for forward pass and backward pass
@@ -248,19 +247,10 @@ class SLIM(pl.LightningModule):
         self.lr = 0.0001
         optimizer = torch.optim.RMSprop(self.parameters(), lr=self.lr)
 
-        scheduler_decay = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6000, gamma=0.5)
-        #scheduler_decay = {'scheduler': scheduler_decay,
-        #                   'interval': 'step',  # or 'epoch'
-        #                   'frequency': 1}
+        scheduler_lambda = lambda step: 0.0001 / (0.0001 ** (step / 2000)) if (step < 2000) else 0.5 ** int(step / 6000)
+        scheduler_warm_up = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[scheduler_lambda])
 
-        warm_up = lambda step: 0.0001 / (0.0001 ** (step / 2000)) if (step < 2000) else 1
-        scheduler_warm_up = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[warm_up])
-        #scheduler_warm_up = {'scheduler': scheduler_warm_up,
-        #                     'interval': 'step',  # or 'epoch'
-        #                     'frequency': 1}
-
-        scheduler = torch.optim.lr_scheduler.ChainedScheduler([scheduler_decay, scheduler_warm_up])
-        scheduler = {'scheduler': scheduler,
+        scheduler = {'scheduler': scheduler_warm_up,
                      'interval': 'step',  # or 'epoch'
                      'frequency': 1}
 
@@ -450,13 +440,11 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
-        return None
         # parsing the data from decoder
         fw_pointwise = predictions_fw[-1][0]
         flow = fw_pointwise["aggregated_flow"]
         previous_pcl = (previous_batch_pc[..., :3] + previous_batch_pc[..., 3:6])  # from pillared to original pts
         self.last_output = [previous_batch_pc.detach(), current_batch_pc.detach(), trans.detach(), fw_pointwise]
-
 
         # Computing all metrics
         self.accr(flow=flow, gt_flow=gt_flow)
@@ -482,13 +470,11 @@ class SLIM(pl.LightningModule):
             avg, stat, dyn = self.aee_50_50.compute()
             self.log(f'{phase}/aee_50_50/average', avg, on_step=True, on_epoch=True)
             self.log(f'{phase}/aee_50_50/static', stat, on_step=True, on_epoch=True)
-            self.log(f'{phase}/aee_50_50/dynamic',dyn, on_step=True, on_epoch=True)
+            self.log(f'{phase}/aee_50_50/dynamic', dyn, on_step=True, on_epoch=True)
 
             num_stat, num_dyn = self.aee_50_50.compute_total()
             self.log(f'{phase}/aee_50_50/static_percentage', num_stat, on_step=True, on_epoch=True)
             self.log(f'{phase}/aee_50_50/dynamic_percentage', num_dyn, on_step=True, on_epoch=True)
-
-
 
 
 if __name__ == "__main__":
@@ -501,7 +487,7 @@ if __name__ == "__main__":
 
     cfg = load_config("../configs/slim.yaml")
     model = SLIM(config=cfg, dataset=trained_on)
-    #model = model.load_from_checkpoint("waymo100k.ckpt")
+    # model = model.load_from_checkpoint("waymo100k.ckpt")
 
     data_cfg = cfg["data"][DATASET]
     grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]

@@ -62,6 +62,7 @@ if __name__ == "__main__":
     # Loading config
     cfg = get_config("../../configs/slim.yaml", dataset=args.dataset)
 
+
     # Creating the model
     model = SLIM(config=cfg, dataset=args.dataset)
 
