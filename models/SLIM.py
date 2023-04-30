@@ -279,12 +279,6 @@ class SLIM(pl.LightningModule):
 
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
-        if predictions_bw == None:
-            return torch.zeros((1,), device=self.device, requires_grad=True)
-        try:
-            predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
-        except:
-            return torch.zeros((1,), device=self.device, requires_grad=True)
 
         # parsing the data from decoder
         fw_pointwise = predictions_fw[-1][0]

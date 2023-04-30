@@ -63,12 +63,15 @@ if __name__ == "__main__":
     os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
     # Loading config
-    cfg = get_config("../../configs/slim.yaml", args.dataset)
+    cfg = get_config("../../configs/slim.yaml", args.dataset_trained_on)
+    cfg["trained_on_dataset"] = args.dataset_trained_on
+    cfg["evaled_model"] = args.resume_from_checkpoint
 
     # Creating and loading the model and datamodule
     model = SLIM(config=cfg, dataset=args.dataset_trained_on)
     model = model.load_from_checkpoint(args.resume_from_checkpoint)
-    data_module = get_datamodule(dataset=args.dataset, data_path=args.data_path, cfg=cfg)
+    cfg_dataset = get_config("../../configs/slim.yaml", args.dataset)
+    data_module = get_datamodule(dataset=args.dataset, data_path=args.data_path, cfg=cfg_dataset)
 
     try:
         version = len(os.listdir(os.path.join(EXPERIMENT_PATH, args.dataset, "lightning_logs")))
@@ -80,7 +83,7 @@ if __name__ == "__main__":
     # callbacks = [SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
     #                     every_n_test_steps=500)]
 
-    callbacks = [SaveInference(dirpath="/mnt/personal/sebekpe1/MF_output_new")]
+    # callbacks = [SaveInference(dirpath="/mnt/personal/sebekpe1/MF_output_new")]
 
     loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs",
                                  log_graph=True, version=version),
@@ -89,11 +92,10 @@ if __name__ == "__main__":
     # trainer with no validation loop
     trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
                          enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=1,
-                         logger=loggers, callbacks=callbacks)
+                         logger=loggers) #, callbacks=callbacks)
 
     # breakpoint()
     import torch
-
     model._moving_dynamicness_threshold.bias_counter = torch.tensor(1)
     trainer.test(model, data_module)
     print("done")

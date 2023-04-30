@@ -1,4 +1,5 @@
 import numpy as np
+import open3d as o3d
 from torch.utils.data import Dataset
 
 
@@ -43,35 +44,33 @@ class BaseDataset(Dataset):
         # Mandatory
         t0_frame, t1_frame = self._get_point_cloud_pair(index)
         t0_to_t1 = self._get_pose_transform(index)
+        assert t0_to_t1.shape == (4, 4), "Matrix in custom dataset must be in shape (4, 4)"
 
-        # (optional) ground truth flows
+        # (optional) ground truth flows from t0 to t1
         flows = self._get_flow(index)
+        assert (flows.shape == t0_frame[:, :3].shape) or flows is None, \
+            "Flow should be None or the number of flows should be equal to frame t0"
 
         # Drop invalid points according to the method supplied
         if self._drop_invalid_point_function is not None:
-            if flows is not None:
-                t0_frame, flows = self._drop_invalid_point_function(t0_frame, flows)
-            else:
-                t0_frame, flows = self._drop_invalid_point_function(t0_frame, None)
+            t0_frame, flows = self._drop_invalid_point_function(t0_frame, flows)
             t1_frame, _ = self._drop_invalid_point_function(t1_frame, None)
-
-        # Add zero flow if dataset does not contain flow
-        if flows is None:
-            flows = np.zeros(shape=(t0_frame.shape[0], 1))
 
         # Subsample points based on n_points
         if self._n_points is not None:
             t0_frame, t1_frame, flows = self._subsample_points(t0_frame, t1_frame, flows)
 
         # Perform the pillarization of the point_cloud
+        # Pointcloud after pillarization is in shape [N, 6 + num features]
         if self._point_cloud_transform is not None and self._apply_pillarization:
-            t1_frame = self._point_cloud_transform(t1_frame)
             t0_frame = self._point_cloud_transform(t0_frame)
+            t1_frame = self._point_cloud_transform(t1_frame)
         else:
             # output must be a tuple
             t0_frame = (t0_frame, None)
             t1_frame = (t1_frame, None)
 
+        # Transformation matrix can not be None
         if t0_to_t1 is None:
             t0_to_t1 = np.eye(4)
 
@@ -120,11 +119,11 @@ class BaseDataset(Dataset):
         return None
 
     def _subsample_points(self, frame_t0, frame_t1, flows):
-        # current_frame.shape[0] == flows.shape[0]
         if frame_t0.shape[0] > self._n_points:
             indexes_previous_frame = np.linspace(0, frame_t0.shape[0] - 1, num=self._n_points).astype(int)
             frame_t0 = frame_t0[indexes_previous_frame, :]
-            flows = flows[indexes_previous_frame, :]
+            if flows is not None:
+                flows = flows[indexes_previous_frame, :]
         if frame_t1.shape[0] > self._n_points:
             indexes_current_frame = np.linspace(0, frame_t1.shape[0] - 1, num=self._n_points).astype(int)
             frame_t1 = frame_t1[indexes_current_frame, :]

@@ -2,7 +2,6 @@ import os.path
 import pickle
 
 import numpy as np
-import torch
 
 from datasets.base import BaseDataset
 
@@ -29,7 +28,8 @@ class WaymoDataset(BaseDataset):
             with open(metadata_path, 'rb') as metadata_file:
                 self.metadata = pickle.load(metadata_file)
         except FileNotFoundError:
-            raise FileNotFoundError(f"Metadata not found, please create it by running preprocess.py. file : {metadata_path}")
+            raise FileNotFoundError(
+                f"Metadata not found, please create it by running preprocess.py. file : {metadata_path}")
 
         self._n_points = n_points
 
@@ -46,8 +46,10 @@ class WaymoDataset(BaseDataset):
         Read from disk the current and previous point cloud given an index
         """
         # In the lookup table entries with (current_frame, previous_frame) are stored
-        current_frame = np.load(os.path.join(self.data_path, self.metadata['look_up_table'][index][1][0]))['frame']
-        previous_frame = np.load(os.path.join(self.data_path, self.metadata['look_up_table'][index][0][0]))['frame']
+        current_frame = np.load(os.path.join(self.data_path,
+                                             self.metadata['look_up_table'][index][1][0]))['frame'][:, :5]
+        previous_frame = np.load(os.path.join(self.data_path,
+                                              self.metadata['look_up_table'][index][0][0]))['frame'][:, :5]
         return previous_frame, current_frame
 
     def _get_pose_transform(self, index):
@@ -56,20 +58,19 @@ class WaymoDataset(BaseDataset):
         Returns:
             t0_to_t1: in shape [4, 4]
         """
+        previous_frame_pose = self.metadata['look_up_table'][index][0][1]
+        current_frame_pose = self.metadata['look_up_table'][index][1][1]
 
-        current_frame_pose = self.metadata['look_up_table'][index][0][1]
-        previous_frame_pose = self.metadata['look_up_table'][index][1][1]
-
-        # G_T_C -> Global_TransformMatrix_Current
-        G_T_C = np.reshape(np.array(current_frame_pose), [4, 4])
-
-        # G_T_P -> Global_TransformMatrix_Previous
+        # G_T_C -> Global_TransformMatrix_Current (current frame to global frame)
         G_T_P = np.reshape(np.array(previous_frame_pose), [4, 4])
 
-        # Transformation matrix Previous (t0) to Current (t1)
-        P_T_C = np.linalg.inv(G_T_P) @ G_T_C
+        # G_T_P -> Global_TransformMatrix_Previous (previous frame to global frame)
+        G_T_C = np.reshape(np.array(current_frame_pose), [4, 4])
 
-        return P_T_C
+        # Transformation matrix Previous (t0) to Current (t1)
+        C_T_P = np.linalg.inv(G_T_C) @ G_T_P
+
+        return C_T_P
 
     def _get_global_transform(self, index):
         """
@@ -93,13 +94,15 @@ class WaymoDataset(BaseDataset):
         flows = flows / 10 + gt_static_flow
         return flows
 
-    def cart2hom(self, pcl):
-        assert pcl.ndim == 2 and pcl.shape[1] == 3, "PointCloud should be in shape [BS, N, 3]"
+    @staticmethod
+    def cart2hom(pcl):
+        assert pcl.ndim == 2 and pcl.shape[1] == 3, "PointCloud should be in shape [N, 3]"
         N, _ = pcl.shape
         return np.concatenate((pcl, np.ones((N, 1))), axis=1)
 
-    def hom2cart(self, pcl):
-        assert pcl.ndim == 2 and pcl.shape[1] == 4, "PointCloud should be in shape [BS, N, 4]"
+    @staticmethod
+    def hom2cart(pcl):
+        assert pcl.ndim == 2 and pcl.shape[1] == 4, "PointCloud should be in shape [N, 4]"
         return pcl[:, :3] / pcl[:, 3:4]
 
     def compute_gt_stat_flow(self, pcl_t0, odometry):

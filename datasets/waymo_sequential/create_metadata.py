@@ -1,13 +1,11 @@
+import pickle
+from copy import deepcopy
+from tqdm import tqdm
+from pathlib import Path
 
-
-if __name__ == "__main__":
-
-    import pickle
-    from copy import deepcopy
-    from tqdm import tqdm
-
-
-    with open("metadata", "rb") as f:
+def create_metadata_sequential(metadata_path):
+    metadata_path = Path(metadata_path)
+    with open(metadata_path, "rb") as f:
         metadata = pickle.load(f)
     metadata_seq = {"look_up_table": [],
                     "flows_information": metadata["flows_information"]}
@@ -41,15 +39,12 @@ if __name__ == "__main__":
             if sequence_check == True:
                 metadata_seq["look_up_table"].append(deepcopy(foursome))
 
-
-
-
-
         #if pair_before is not None:
         pair_before_before = pair_before
         pair_before = pair
 
-    with open('metadata_seq', 'wb') as file:
+    with open(metadata_path.parent / "metadata_seq", 'wb') as file:
         pickle.dump(metadata_seq, file)
 
-
+if __name__ == "__main__":
+    create_metadata_sequential("../../data/waymoflow/test/metadata")
