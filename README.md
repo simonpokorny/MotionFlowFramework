@@ -1,25 +1,5 @@
 # motion-learning
 
-## Changes
-
-#### week 20.6.
-- updated codes for slim -> devices, types .. 
-- fast dev run gone through on rci 
-- kitti dataset and datamodule is add and tested
-- basedataset and datamodule is add and tested
-
-#### week 6.3.
-- Changed the structure of the project (seems more useful and organized)
-- all hyperparameters of slim are stored in config with description 
-- pytorch3d folder was removed from repo, but added to requirements 
-- merged BaseModelSlim and Slim to one script slim.py
-- slim decoder is rewritten to more readable format 
-- added optimization and lr changes to slim based on official repo 
-- losses are also added
-
-### week 13.3
-
-- add basedataset and basedatamodule [link](./datasets/base)
 
 
 
