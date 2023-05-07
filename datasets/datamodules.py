@@ -10,7 +10,6 @@ def get_datamodule(dataset: str, data_path: Union[str, None], cfg: dict):
     if dataset == 'waymo':
         dataset_path = data_path if data_path is not None else \
             "/Users/simonpokorny/Developer/motion_learning/data/waymoflow"
-        data_cfg["has_test"] = True
         data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
     elif dataset == 'rawkitti':
         dataset_path = data_path if data_path is not None else \

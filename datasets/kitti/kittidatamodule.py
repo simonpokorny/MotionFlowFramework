@@ -66,7 +66,8 @@ class KittiDataModule(BaseDataModule):
                          num_workers=num_workers,
                          n_points=n_points,
                          apply_pillarization=apply_pillarization,
-                         shuffle_train=shuffle_train)
+                         shuffle_train=shuffle_train,
+                         point_features=point_features)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 import numpy as np
-import open3d as o3d
 from torch.utils.data import Dataset
 
 
@@ -12,7 +11,8 @@ class BaseDataset(Dataset):
                  point_cloud_transform=None,
                  drop_invalid_point_function=None,
                  n_points=None,
-                 apply_pillarization=True):
+                 apply_pillarization=True,
+                 point_features=3):
         super().__init__()
         self._n_points = n_points
         self.data_path = data_path
@@ -25,6 +25,9 @@ class BaseDataset(Dataset):
         # the pillarized point cloud to the model for infer but we would
         # like to display the points without pillarizing them
         self._apply_pillarization = apply_pillarization
+
+        # How many features we want use, for example we do not want to use intensities -> num features = 6
+        self._point_features = point_features
 
     def __getitem__(self, index):
         """
@@ -43,14 +46,20 @@ class BaseDataset(Dataset):
 
         # Mandatory
         t0_frame, t1_frame = self._get_point_cloud_pair(index)
+
+        # Crop to wanted number of wanted features
+        t0_frame = t0_frame[:, :self._point_features]
+        t1_frame = t1_frame[:, :self._point_features]
+
         t0_to_t1 = self._get_pose_transform(index)
         assert t0_to_t1.shape == (4, 4), "Matrix in custom dataset must be in shape (4, 4)"
 
         # (optional) ground truth flows from t0 to t1
         flows = self._get_flow(index)
-        assert (flows.shape == t0_frame[:, :3].shape) or flows is None, \
-            "Flow should be None or the number of flows should be equal to frame t0"
-
+        if type(flows) == np.ndarray:
+            assert (flows.shape == t0_frame[:, :3].shape), "Flows should be equal to frame t0"
+        else:
+            assert flows == None, "Flow should be None"
         # Drop invalid points according to the method supplied
         if self._drop_invalid_point_function is not None:
             t0_frame, flows = self._drop_invalid_point_function(t0_frame, flows)
@@ -73,6 +82,11 @@ class BaseDataset(Dataset):
         # Transformation matrix can not be None
         if t0_to_t1 is None:
             t0_to_t1 = np.eye(4)
+
+        # Flow can't be None, because of the collate func in dataloader
+        if flows is None:
+            N, _ = t0_frame[0].shape
+            flows = np.empty((N ,3))
 
         return (t0_frame, t1_frame), flows, t0_to_t1.astype(np.float32)
 

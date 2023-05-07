@@ -6,7 +6,7 @@ from losses.flow import rigid_cycle_loss, NN_loss, smoothness_loss, static_point
 from metrics import AccS, AccR, AEE, AEE_50_50, Outl, ROutl
 from models.networks import PillarFeatureNetScatter, PointFeatureNet, MovingAverageThreshold, RAFT
 from models.networks.slimdecoder import OutputDecoder
-from models.utils import init_weights
+from models.utils import init_weights, get_pointwise_pillar_coords, create_bev_occupancy_grid
 
 
 class SLIM(pl.LightningModule):
@@ -21,19 +21,11 @@ class SLIM(pl.LightningModule):
         assert type(config) == dict
         self.config = config
 
-        # just only example input to model (useful for tensorboard to make computional graph)
-        self.n_features = config["data"][dataset]["point_features"]
-        t1 = [torch.rand([1, 20, self.n_features]), torch.randint(0, 20, (1, 20)),
-              torch.ones((1, 20), dtype=torch.bool)]
-        t0 = [torch.rand([1, 20, self.n_features]), torch.randint(0, 20, (1, 20)),
-              torch.ones((1, 20), dtype=torch.bool)]
-        transf = torch.eye(4)[None, :]
-        # self.example_input_array = (t0, t1), transf
-
         self.last_output = None
         self._loss_BCE = torch.nn.BCELoss()
 
         self.save_hyperparameters()  # Store the constructor parameters into self.hparams
+        self.n_features = config["data"][dataset]["point_features"] + 3
         self.n_pillars_x = config["data"][dataset]["n_pillars_x"]
         self.n_pillars_y = config["data"][dataset]["n_pillars_y"]
 
@@ -79,97 +71,59 @@ class SLIM(pl.LightningModule):
         # 241.307 MiB    234
         return batch_pc_embedding
 
-    def _batch_grid_2D(self, batch_grid):
-        """
-        A method that takes a batch of grid indices and returns the corresponding 2D grid coordinates.
-        The method calculates the x and y indices of the grid points using the number of pillars in
-        the x and y dimensions, respectively, and then concatenates them along the second dimension.
-        """
-        # Numpy version
-        # grid = np.hstack(
-        #    ((batch_grid // self.n_pillars_x)[:, np.newaxis], (batch_grid % self.n_pillars_y)[:, np.newaxis]))
-        # grid = np.moveaxis(grid, -1, 1)
-
-        # Pytorch version
-        grid = torch.cat(((batch_grid // self.n_pillars_x).unsqueeze(1),
-                          (batch_grid % self.n_pillars_y).unsqueeze(1)), dim=1)
-        return grid.transpose(-1, 1)  # Equivalent to np.moveaxis(grid, -1, 1)
-
-    def _filled_pillar_mask(self, batch_grid, batch_mask):
-        """
-        A method that takes a batch of grid indices and masks and returns a tensor with a 1 in the location
-        of each grid point and a 0 elsewhere. The method creates a tensor of zeros with the same shape as
-        the voxel grid, and then sets the locations corresponding to the grid points in the batch to 1.
-        """
-        bs = batch_grid.shape[0]
-        # pillar mask
-        pillar_mask = torch.zeros((bs, 1, self.n_pillars_x, self.n_pillars_y), device=batch_grid.device)
-        #
-        x = batch_grid[batch_mask][..., 0]
-        y = batch_grid[batch_mask][..., 1]
-        pillar_mask[:, :, x, y] = 1
-        return pillar_mask
-
-    def forward(self, x, transforms_matrices):
+    def forward(self, x, transforms_matrice):
         """
         The usual forward pass function of a torch module
-        :param x:
-        :param transforms_matrices:
+        :param x: A tuple (previous_pcl, current_pcl) where each batch of point cloud has the same structure.
+            previous_pcl[0] - Tensor of point clouds after pillarization in shape (BS, num points, num features)
+            previous_pcl[1] - Grid indices in flattened mode in shape (BS, num points)
+            previous_pcl[2] - Boolean mask tensor in shape (BS, num points) indicating if the point is valid.
+        :param transforms_matrice: A tensor for the transformation matrix from previous to current point cloud in shape (BS, 4, 4).
         :return:
+            - predictions_fw: Forward predictions
+            - predictions_bw: Backward predictions
+            - previous_batch_pc: Tensor of previous point cloud batch in shape (BS, num points, num features)
+            - current_batch_pc: Tensor of current point cloud batch in shape (BS, num points, num features)
+
         """
         # 1. Do scene encoding of each point cloud to get the grid with pillar embeddings
-        # Input is a point cloud each with shape (N_points, point_features)
 
         # The input here is more complex as we deal with a batch of point clouds
         # that do not have a fixed amount of points
         # x is a tuple of two lists representing the batches
         previous_batch, current_batch = x
-        # trans is a tensor representing transforms from previous to current frame (t0 -> t1)
 
-        P_T_C = transforms_matrices.type(self.dtype)
+        # trans is a tensor representing transforms from previous to current frame (t0 -> t1)
+        P_T_C = transforms_matrice.type(self.dtype)
         C_T_P = torch.linalg.inv(P_T_C).type(self.dtype)
 
         previous_batch_pc, previous_batch_grid, previous_batch_mask = previous_batch
         current_batch_pc, current_batch_grid, current_batch_mask = current_batch
+        assert current_batch_pc.shape[2] == self.n_features and previous_batch_pc.shape[2] == self.n_features
 
-        # Cut embedings to wanted number of features
-        previous_batch_pc = previous_batch_pc[:, :, :self.n_features]
-        current_batch_pc = current_batch_pc[:, :, :self.n_features]
-
-        # For some reason the datatype of the input is not changed to correct precision
         previous_batch_pc = previous_batch_pc.type(self.dtype)
         current_batch_pc = current_batch_pc.type(self.dtype)
 
-        # pointwise_voxel_coordinates_fs is in shape [BS, num points, 2],
-        # where last dimension belong to location of point in voxel grid
-        current_voxel_coordinates = self._batch_grid_2D(current_batch_grid)
-        previous_voxel_coordinates = self._batch_grid_2D(previous_batch_grid)
+        # Get point-wise voxel coods in shape [BS, num points, 2],
+        current_voxel_coordinates = get_pointwise_pillar_coords(current_batch_grid, self.n_pillars_x, self.n_pillars_y)
+        previous_voxel_coordinates = get_pointwise_pillar_coords(previous_batch_grid, self.n_pillars_x, self.n_pillars_y)
 
         # Create bool map of filled/non-filled pillars
-        current_batch_pillar_mask = self._filled_pillar_mask(current_voxel_coordinates, current_batch_mask)
-        previous_batch_pillar_mask = self._filled_pillar_mask(previous_voxel_coordinates, previous_batch_mask)
-
-        # batch_pc = (batch_size, N, 8) | batch_grid = (n_batch, N, 2) | batch_mask = (n_batch, N)
-        # The grid indices are (batch_size, max_points) long. But we need them as
-        # (batch_size, max_points, feature_dims) to work. Features are in all necessary cases 64.
-        # Expand does only create multiple views on the same datapoint and not allocate extra memory
-        current_batch_grid = current_batch_grid.unsqueeze(-1).expand(-1, -1, 64)
-        previous_batch_grid = previous_batch_grid.unsqueeze(-1).expand(-1, -1, 64)
+        current_batch_pillar_mask = create_bev_occupancy_grid(current_voxel_coordinates, current_batch_mask,
+                                                              self.n_pillars_x, self.n_pillars_y)
+        previous_batch_pillar_mask = create_bev_occupancy_grid(previous_voxel_coordinates, previous_batch_mask,
+                                                              self.n_pillars_x, self.n_pillars_y)
 
         # Pass the whole batch of point clouds to get the embedding for each point in the cloud
         # Input pc is (batch_size, max_n_points, features_in)
-        # per each point, there are 8 features: [cx, cy, cz,  Δx, Δy, Δz, l0, l1], as stated in the paper
         previous_batch_pc_embedding = self._transform_point_cloud_to_embeddings(previous_batch_pc,
-                                                                                previous_batch_mask).type(
-            self.dtype)
+                                                                                previous_batch_mask).type(self.dtype)
         # previous_batch_pc_embedding = [n_batch, N, 64]
         # Output pc is (batch_size, max_n_points, embedding_features)
         current_batch_pc_embedding = self._transform_point_cloud_to_embeddings(current_batch_pc,
                                                                                current_batch_mask).type(self.dtype)
 
         # Now we need to scatter the points into their 2D matrix
-        # batch_pc_embeddings -> (batch_size, N, 64)
-        # batch_grid -> (batch_size, N, 64)
         # No learnable params in this part
         previous_pillar_embeddings = self._pillar_feature_net(previous_batch_pc_embedding, previous_batch_grid)
         current_pillar_embeddings = self._pillar_feature_net(current_batch_pc_embedding, current_batch_grid)
@@ -183,22 +137,15 @@ class SLIM(pl.LightningModule):
         pillar_embeddings = pillar_embeddings.flatten(0, 1)
         # Flatten into (batch_size * 2, 64, 512, 512) for encoder forward pass.
 
-        # The grid map is ready in shape (BS, 64, 640, 640)
-
         # 2. RAFT Encoder with motion flow backbone
         # Output for forward pass and backward pass
         # Each of the output is a list of num_iters x [1, 9, n_pillars_x, n_pillars_x]
         # logits, static_flow, dynamic_flow, weights are concatinate in channels in shapes [4, 2, 2, 1]
         outputs_fw, outputs_bw = self._raft(pillar_embeddings)
 
-        # Transformation matrix Current (t1) to Previous (t0)
-        # C_T_P = torch.linalg.inv(G_T_C) @ G_T_P
-        # Transformation matrix Previous (t0) to Current (t1)
-        # P_T_C = torch.linalg.inv(G_T_P) @ G_T_C
-
+        # 3. SLIM Decoder
         predictions_fw = []
         predictions_bw = []
-
         for it, (raft_output_0_1, raft_output_1_0) in enumerate(zip(outputs_fw, outputs_bw)):
             prediction_fw = self._decoder_fw(
                 network_output=raft_output_0_1,
@@ -207,7 +154,7 @@ class SLIM(pl.LightningModule):
                 pointwise_voxel_coordinates_fs=previous_voxel_coordinates,
                 pointwise_valid_mask=previous_batch_mask,
                 filled_pillar_mask=previous_batch_pillar_mask.type(torch.bool),
-                odom=P_T_C,  # TODO má tam být P_T_C ?
+                odom=P_T_C,
                 inv_odom=C_T_P,
                 it=it)
 
@@ -256,6 +203,60 @@ class SLIM(pl.LightningModule):
 
         return [optimizer], [scheduler]
 
+    def compute_loss(self, pointwise_output, previous_pcl, current_pcl, inverse_trans, phase="train", mode="fw"):
+        # Dynamic flow from RAFT
+        raw_flow = pointwise_output['dynamic_flow']
+        # Static aggregated flow from Kabsch
+        rigid_flow = pointwise_output['static_aggr_flow']
+
+        # nearest neighbor for dynamic flow
+        raw_flow_nn_error = NN_loss(previous_pcl + raw_flow, current_pcl, reduction='none')
+
+        # nearest neighbor for rigid (kabsch) flow
+        rigid_flow_nn_error = NN_loss(previous_pcl + rigid_flow, current_pcl, reduction='none')
+
+        # Update moving average threshold
+        self._moving_dynamicness_threshold.update(
+            epes_stat_flow=rigid_flow_nn_error[0].detach(),
+            epes_dyn_flow=raw_flow_nn_error[0].detach(),
+            dynamicness=pointwise_output["dynamicness"][0, :, 0],
+            training=True)
+
+        # Artificial loss
+        is_static_artificial_label = rigid_flow_nn_error < raw_flow_nn_error
+        art_loss = self._loss_BCE(input=pointwise_output["staticness"][:, :, 0],
+                                  target=is_static_artificial_label.float())
+
+        # Smoothness loss
+        smooth_loss = smoothness_loss(p_i=previous_pcl, est_flow=raw_flow, K=5, reduction='mean')
+
+        # Nearest neighbour loss for forward
+        nn_loss = (raw_flow_nn_error + rigid_flow_nn_error).mean()
+
+        # Static Points Loss
+        stat_loss = static_point_loss(previous_pcl,
+                                      T=pointwise_output["static_aggr_trans_matrix"],
+                                      static_flow=pointwise_output["static_flow"],
+                                      staticness=pointwise_output["staticness"].detach(),
+                                      reduction="mean")
+
+        # Rigid Cycle
+        cycle_loss = rigid_cycle_loss(previous_pcl, pointwise_output["static_aggr_trans_matrix"], inverse_trans)
+
+        self.log_losses(phase=phase, mode=mode,
+                        nn=nn_loss,
+                        rigid_cycle=cycle_loss,
+                        artificial=art_loss,
+                        static_point_loss=stat_loss,
+                        smoothness=smooth_loss)
+        loss = 2. * nn_loss + 1. * cycle_loss + 1 * stat_loss + 0.1 * art_loss + 1 * smooth_loss
+        return loss
+
+    def log_losses(self, phase, mode, **kwargs):
+        for name, value in kwargs.items():
+            self.log(f'{phase}/{mode}/loss/{name}', value.item(), on_step=True, on_epoch=True, logger=True)
+
+
     def training_step(self, batch, batch_idx):
         """
         This method is specific to pytorch lightning.
@@ -272,11 +273,6 @@ class SLIM(pl.LightningModule):
         # (batch_previous, batch_current), batch_targets
         x, _, trans = batch
 
-        # Values for dynamicness threshold
-        epes_stat_err = torch.tensor([], device=self.device)
-        epes_dyn_err = torch.tensor([], device=self.device)
-        dynamicness = torch.tensor([], device=self.device)
-
         # Forward pass of the slim
         predictions_fw, predictions_bw, previous_batch_pc, current_batch_pc = self(x, trans)
 
@@ -291,130 +287,22 @@ class SLIM(pl.LightningModule):
         previous_pcl = (previous_batch_pc[..., :3] + previous_batch_pc[..., 3:6])  # from pillared to original pts
         current_pcl = (current_batch_pc[..., :3] + current_batch_pc[..., 3:6])  # from pillared to original pts
 
-        """
-        ╔══════════════════════════════════╗
-        ║     COMPUTING A FORWARD LOSS     ║
-        ╚══════════════════════════════════╝
-        """
-
-        fw_raw_flow = fw_pointwise['dynamic_flow']  # flow from raft (raw flow)
-        fw_rigid_flow = fw_pointwise['static_aggr_flow']  # flow from kabsch
-
-        # nearest neighbor for dynamic flow
-        fw_raw_flow_nn_error, fw_raw_flow_nn_idx = NN_loss(previous_pcl + fw_raw_flow, current_pcl, reduction='none')
-
-        # nearest neighbor for rigid (kabsch) flow
-        fw_rigid_flow_nn_error, _ = NN_loss(previous_pcl + fw_rigid_flow, current_pcl, reduction='none')
-
-        # Update values for dynamicness thresholds
-        epes_stat_err = torch.cat((epes_stat_err, fw_rigid_flow_nn_error[0]))
-        epes_dyn_err = torch.cat((epes_dyn_err, fw_raw_flow_nn_error[0]))
-        dynamicness = torch.cat((dynamicness, fw_pointwise["dynamicness"][0, :, 0]))
-
-        # Artificial loss
-        is_static_artificial_label = fw_rigid_flow_nn_error < fw_raw_flow_nn_error
-        art_loss = self._loss_BCE(input=fw_pointwise["staticness"][:, :, 0], target=is_static_artificial_label.float())
-
-        # Smoothness loss
-        smooth_loss = smoothness_loss(p_i=previous_pcl, est_flow=fw_raw_flow, K=5, reduction='mean')
-
-        # Nearest neighbour loss for forward
-        nn_loss = (fw_raw_flow_nn_error + fw_rigid_flow_nn_error).mean()
-
-        # todo remove outlier percentage - Does not needed
-
-        # Static Points Loss # TODO i added detach on staticness learn it only from artificial loss
-        stat_loss = static_point_loss(previous_pcl, T=fw_trans, static_flow=fw_pointwise["static_flow"],
-                                      staticness=fw_pointwise["staticness"].detach(), reduction="mean")
-
-        # Rigid Cycle
-        cycle_loss = rigid_cycle_loss(previous_pcl, fw_trans, bw_trans)
-
-        # Metric calculation
-        # valid_flow_mask = torch.ones_like(y[..., 3], dtype=torch.bool, device=self.device)  # todo add
-        # epe, acc_strict, acc_relax = eval_flow(y[..., :3], fw_raw_flow_i)
-
-        loss.append(2. * nn_loss + 1. * cycle_loss + 1 * stat_loss + 0.1 * art_loss + 1 * smooth_loss)
-
-        """
-        ╔══════════════════════════════════╗
-        ║     COMPUTING A BACKWARD LOSS    ║
-        ╚══════════════════════════════════╝
-        """
-
-        bw_raw_flow = bw_pointwise['dynamic_flow']
-        bw_rigid_flow = bw_pointwise['static_aggr_flow']
-
-        bw_raw_flow_nn_error, _ = NN_loss(current_pcl + bw_raw_flow, previous_pcl, reduction='none')
-        bw_rigid_flow_nn_error, _ = NN_loss(current_pcl + bw_rigid_flow, previous_pcl, reduction='none')
-
-        # Update values for dynamicness thresholds
-        epes_stat_err = torch.cat((epes_stat_err, bw_rigid_flow_nn_error[0]))
-        epes_dyn_err = torch.cat((epes_dyn_err, bw_raw_flow_nn_error[0]))
-        dynamicness = torch.cat((dynamicness, bw_pointwise["dynamicness"][0, :, 0]))
-
-        # Artificial loss
-        is_static_artificial_label = bw_rigid_flow_nn_error < bw_raw_flow_nn_error
-        bw_art_loss = self._loss_BCE(input=bw_pointwise["staticness"][:, :, 0],
-                                     target=is_static_artificial_label.float())
-
-        # Smoothness loss
-        bw_smooth_loss = smoothness_loss(p_i=current_pcl, est_flow=bw_raw_flow, K=5, reduction='mean')
-
-        # NN Loss
-        bw_nn_loss = (bw_raw_flow_nn_error + bw_rigid_flow_nn_error).mean()
-
-        # Static Points Loss
-        bw_stat_loss = static_point_loss(current_pcl, T=bw_trans, static_flow=bw_pointwise["static_flow"],
-                                         staticness=bw_pointwise["staticness"].detach(), reduction="mean")
-
-        # Rigid Cycle
-        bw_cycle_loss = rigid_cycle_loss(current_pcl, bw_trans, fw_trans)
-
-        loss.append(
-            2. * bw_nn_loss + 1. * bw_cycle_loss + 1 * bw_stat_loss + 0.1 * bw_art_loss + 1 * bw_smooth_loss)
+        # Compute forward and backward loss
+        loss.append(self.compute_loss(fw_pointwise, previous_pcl, current_pcl, bw_trans, phase="train", mode="fw"))
+        loss.append(self.compute_loss(bw_pointwise, current_pcl, previous_pcl, fw_trans, phase="train", mode="bw"))
 
         loss = loss[0] + loss[1]
 
-        # Update moving average threshold
-        self._moving_dynamicness_threshold.update(
-            epes_stat_flow=epes_stat_err,
-            epes_dyn_flow=epes_dyn_err,
-            dynamicness=dynamicness,
-            training=True)
-
-        # Log all loss
+        # Log others
         phase = "train"
-        self.log(f'{phase}/fw/loss/nn', nn_loss.item(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
-        self.log(f'{phase}/fw/loss/rigid_cycle', cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-        self.log(f'{phase}/fw/loss/artificial', art_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-        self.log(f'{phase}/fw/loss/static_point_loss', stat_loss.item(), on_step=True, on_epoch=True,
-                 prog_bar=False, logger=True)
-        self.log(f'{phase}/fw/loss/smoothness', smooth_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-
+        mean_staticness = fw_pointwise["staticness"].mean().detach().cpu()
+        mean_dynamicness = fw_pointwise["dynamicness"].mean().detach().cpu()
+        threshold = self._moving_dynamicness_threshold.value()
         self.log(f"{phase}/lr", self.optimizers().optimizer.param_groups[0]["lr"], on_step=True, logger=True)
-        self.log(f'{phase}/moving_threshold', self._moving_dynamicness_threshold.value(), on_step=True, on_epoch=True,
-                 prog_bar=False, logger=True)
+        self.log(f'{phase}/moving_threshold', threshold, on_step=True, on_epoch=True, logger=True)
         self.log(f'{phase}/loss/', loss.item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
-        self.log(f'{phase}/bw/loss/nn', bw_nn_loss.item(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
-        self.log(f'{phase}/bw/loss/rigid_cycle', bw_cycle_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-        self.log(f'{phase}/bw/loss/artificial', bw_art_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-        self.log(f'{phase}/bw/loss/static_point_loss', bw_stat_loss.item(), on_step=True, on_epoch=True,
-                 prog_bar=False, logger=True)
-        self.log(f'{phase}/bw/loss/smoothness', bw_smooth_loss.item(), on_step=True, on_epoch=True, prog_bar=False,
-                 logger=True)
-
-        self.log(f'{phase}/fw/staticness', fw_pointwise["staticness"].mean().detach().cpu(), on_step=True,
-                 on_epoch=True,
-                 prog_bar=False, logger=True)
-        self.log(f'{phase}/fw/dynamicness', fw_pointwise["dynamicness"].mean().detach().cpu(), on_step=True,
-                 on_epoch=True, prog_bar=False, logger=True)
+        self.log(f'{phase}/fw/staticness', mean_staticness, on_step=True, on_epoch=True, logger=True)
+        self.log(f'{phase}/fw/dynamicness', mean_dynamicness, on_step=True, on_epoch=True, logger=True)
 
         self.last_output = [previous_batch_pc.detach(), current_batch_pc.detach(), trans.detach(), fw_pointwise]
 
@@ -458,7 +346,7 @@ class SLIM(pl.LightningModule):
         self.log(f'{phase}/accs', self.accs.compute(), on_step=True, on_epoch=True)
         self.log(f'{phase}/outl', self.outl.compute(), on_step=True, on_epoch=True)
         self.log(f'{phase}/routl', self.routl.compute(), on_step=True, on_epoch=True)
-        self.log(f'{phase}/aee', self.aee.compute(), on_step=True, on_epoch=True)
+        self.log(f'{phase}/aee', self.aee.compute(), on_step=True, on_epoch=True, prog_bar=True)
 
         if self.have_odometry:
             avg, stat, dyn = self.aee_50_50.compute()
@@ -476,40 +364,21 @@ if __name__ == "__main__":
     trained_on = "nuscenes"
     assert DATASET in ["waymo", "rawkitti", "kittisf", "nuscenes"]
 
-    from configs import load_config
-    from datasets import KittiDataModule, WaymoDataModule, KittiSceneFlowDataModule, NuScenesDataModule
+    from configs import get_config
+    from datasets import get_datamodule
 
-    cfg = load_config("../configs/slim.yaml")
+    cfg = get_config("../configs/slim.yaml", dataset=DATASET)
     model = SLIM(config=cfg, dataset=trained_on)
-    # model = model.load_from_checkpoint("waymo100k.ckpt")
+    #model = model.load_from_checkpoint("waymo100k.ckpt")
 
-    data_cfg = cfg["data"][DATASET]
-    grid_cell_size = (data_cfg["x_max"] + abs(data_cfg["x_min"])) / data_cfg["n_pillars_x"]
-    data_cfg["num_workers"] = 0
+    cfg["data"][DATASET]["num_workers"] = 0
+    data_module = get_datamodule(dataset=DATASET, data_path=None, cfg=cfg)
 
-    if DATASET == 'waymo':
-        dataset_path = "../data/waymoflow"
-        data_module = WaymoDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-    elif DATASET == 'rawkitti':
-        dataset_path = "../data/rawkitti/"
-        data_module = KittiDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-    elif DATASET == "kittisf":
-        dataset_path = "../data/kittisf/"
-        data_module = KittiSceneFlowDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size,
-                                               **data_cfg)
-    elif DATASET == "nuscenes":
-        dataset_path = "../data/nuscenes"
-        data_module = NuScenesDataModule(dataset_directory=dataset_path, grid_cell_size=grid_cell_size, **data_cfg)
-    else:
-        raise ValueError('Dataset {} not available yet'.format(DATASET))
-
-    ### TRAINER ###
     loggers = TensorBoardLogger(save_dir="", log_graph=True, version=0)
-
     trainer = pl.Trainer(fast_dev_run=True, num_sanity_val_steps=0, logger=loggers)  # Add Trainer hparams if desired
 
     trainer.fit(model, data_module)
     trainer.test(model, data_module)
     # trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
-    print("done")
+    print("Done")

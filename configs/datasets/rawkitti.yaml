@@ -5,7 +5,7 @@ data:
     # n_pillars_y (int): The number of pillars in the y dimension of the voxel grid.
     n_pillars_y: 640
     # point_features (int): The number of features in each point of the input point clouds.
-    point_features: 6
+    point_features: 3 # max 4
     x_min: -35
     x_max: 35
     y_min: -35

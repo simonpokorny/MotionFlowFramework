@@ -2,7 +2,7 @@ data:
   nuscenes:
     n_pillars_x: 640
     n_pillars_y: 640
-    point_features: 6 # maximum 7
+    point_features: 3 # maximum 4 (x,y,z, intenzity)
     x_min: -35
     x_max: 35
     y_min: -35

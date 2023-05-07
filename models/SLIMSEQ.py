@@ -200,6 +200,49 @@ class SLIMSEQ(SLIM):
         choosen_pcl3_by_idx = torch.index_select(pcl3, 1, idx_2_to_3[0, :, 0])
         #choosen_pcl3__grid_by_idx = torch.index_select(coordiantes_grid[3], 1, idx_2_to_3[0, :, 0])
 
+
+        import open3d as o3d
+        import numpy as np
+
+        NUM_POINTS = 1000
+
+        flow0 = choosen_flow_0_to_1[0].detach().numpy()[:NUM_POINTS]
+        flow1 = choosen_flow_1_to_2[0].detach().numpy()[:NUM_POINTS]
+        flow2 = forward_flow[2][0].detach().numpy()[:NUM_POINTS]
+
+        pcl0 = choosen_pcl0_by_idx[0].detach().numpy()[:NUM_POINTS]
+        pcl1 = choosen_pcl1_by_idx[0].detach().numpy()[:NUM_POINTS]
+        pcl2_ = pcl2[0].detach().numpy()[:NUM_POINTS]
+
+        indices = np.arange(NUM_POINTS * 2).reshape((2, -1)).T
+
+        from datasets.visualization.utils import create_o3d_pcl
+
+        t0_frame_o3d = create_o3d_pcl(pcl0, [0.1, 0.6, 0.1])
+        t1_frame_o3d = create_o3d_pcl(pcl1, [0.1, 0.1, 0.7])
+        t2_frame_o3d = create_o3d_pcl(pcl2_, [0.9, 0.1, 0.1])
+
+        flow0 = np.concatenate([pcl0, flow0 + pcl0], axis=0)
+        flow1 = np.concatenate([pcl1, flow1 + pcl1], axis=0)
+        flow2 = np.concatenate([pcl2_, flow2 + pcl2_], axis=0)
+
+        o3d_flow0 = o3d.geometry.LineSet()
+        o3d_flow0.points = o3d.utility.Vector3dVector(flow0)
+        o3d_flow0.lines = o3d.utility.Vector2iVector(indices)
+
+        o3d_flow1 = o3d.geometry.LineSet()
+        o3d_flow1.points = o3d.utility.Vector3dVector(flow1)
+        o3d_flow1.lines = o3d.utility.Vector2iVector(indices)
+
+        o3d_flow2 = o3d.geometry.LineSet()
+        o3d_flow2.points = o3d.utility.Vector3dVector(flow2)
+        o3d_flow2.lines = o3d.utility.Vector2iVector(indices)
+
+        o3d.visualization.draw_geometries([t0_frame_o3d, t1_frame_o3d, t2_frame_o3d, o3d_flow0,o3d_flow1, o3d_flow2])
+
+
+
+
         ### VISIBILITY ###
 
         class_target = torch.zeros_like(pcl2, device=self.device, dtype=torch.bool)
@@ -234,7 +277,7 @@ class SLIMSEQ(SLIM):
         diff1 = f1_norm - f2_norm
 
         loss_speed = torch.nn.functional.mse_loss(input=diff0, target=diff1, reduction='mean')
-        loss_speed += torch.nn.functional.mse_loss(input=diff1, target=diff0, reduction='mean')
+        #loss_speed += torch.nn.functional.mse_loss(input=diff1, target=diff0, reduction='mean')
 
 
         f0_angle = torch.atan2(choosen_flow_0_to_1[:,:,1], choosen_flow_0_to_1[:,:,0])
@@ -251,7 +294,7 @@ class SLIMSEQ(SLIM):
         diff_ang1 = torch.where(diff_ang1 <= -torch.pi, diff_ang1 + 2 * torch.pi, diff_ang1)
 
         loss_angle = torch.nn.functional.mse_loss(input=diff_ang0, target=diff_ang1, reduction='mean')
-        loss_angle += torch.nn.functional.mse_loss(input=diff_ang1, target=diff_ang0, reduction='mean')
+        #loss_angle += torch.nn.functional.mse_loss(input=diff_ang1, target=diff_ang0, reduction='mean')
 
 
         phase = "train"
@@ -447,8 +490,8 @@ if __name__ == "__main__":
     # Creating the model
     model = SLIMSEQ(config=cfg, dataset=dataset)
     # model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/nuscenes/checkpoints/version_1/epoch=0-step=8000.ckpt")
-    model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/waymo/checkpoints/version_3/epoch=0-step=80000.ckpt")
-    # model = model.load_from_checkpoint("waymo100k.ckpt")
+    # model = model.load_from_checkpoint("/home/pokorsi1/motion_learning/scripts/slim/experiments/waymo/checkpoints/version_3/epoch=0-step=80000.ckpt")
+    model = model.load_from_checkpoint("waymo100k.ckpt")
 
     # Get datamodule
     data_cfg = cfg["data"][dataset]

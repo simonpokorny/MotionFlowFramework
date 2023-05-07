@@ -26,6 +26,7 @@ class BaseDataModule(pl.LightningDataModule):
                  n_points=None,
                  apply_pillarization=True,
                  shuffle_train=True,
+                 point_features=3,
                  ):
         """
         This class defines a PyTorch Lightning DataModule that loads and preprocesses data from a specified dataset
@@ -55,6 +56,7 @@ class BaseDataModule(pl.LightningDataModule):
         self._dataset = dataset
         self._dataset_directory = Path(dataset_directory)
         self._batch_size = batch_size
+        self._point_features = point_features
         self._train_ = None
         self._val_ = None
         self._test_ = None
@@ -84,23 +86,23 @@ class BaseDataModule(pl.LightningDataModule):
         :param stage: either 'fit', 'validate', 'test' or 'predict'
         :return: None
         """
-        #print(self._dataset, type(self._dataset))
-        #print(self._dataset_directory, type(self._dataset_directory))
+
         self._train_ = self._dataset(self._dataset_directory.joinpath("train"),
                                     point_cloud_transform=self._pillarization_transform,
                                     drop_invalid_point_function=self._drop_points_function,
-                                    n_points=self._n_points, apply_pillarization=self.apply_pillarization)
+                                    n_points=self._n_points, apply_pillarization=self.apply_pillarization,
+                                    point_features=self._point_features)
         self._val_ = self._dataset(self._dataset_directory.joinpath("valid"),
                                   point_cloud_transform=self._pillarization_transform,
                                   drop_invalid_point_function=self._drop_points_function,
                                   apply_pillarization=self.apply_pillarization,
-                                  n_points=self._n_points)
+                                  n_points=self._n_points, point_features=self._point_features)
         if self._has_test:
             self._test_ = self._dataset(self._dataset_directory.joinpath("test"),
                                        point_cloud_transform=self._pillarization_transform,
                                        drop_invalid_point_function=self._drop_points_function,
-                                       apply_pillarization=self.apply_pillarization
-                                       )
+                                       apply_pillarization=self.apply_pillarization,
+                                       point_features=self._point_features)
 
     def train_dataloader(self) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
         """

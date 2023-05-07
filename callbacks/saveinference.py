@@ -19,7 +19,8 @@ class SaveInference(Callback):
         if batch_idx % self.every_n_test_steps == 0:
 
             aggregated_flow = pl_module.last_output[3]["aggregated_flow"].detach().cpu().numpy()
-            np.save(self.path / f"{str(batch_idx).zfill(6)}", aggregated_flow)
+            classes_oh = pl_module.last_output[3]["class_prediction"].detach().cpu().numpy()
+            np.savez(self.path / f"{str(batch_idx).zfill(6)}", aggregated_flow=aggregated_flow, classes_oh=classes_oh)
 
 
 

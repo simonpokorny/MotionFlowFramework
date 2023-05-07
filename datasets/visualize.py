@@ -2,7 +2,7 @@ from tqdm import tqdm
 
 from configs import get_config
 from datasets import get_datamodule
-from datasets import Visualizer
+from datasets.visualization.visualizer import Visualizer
 
 if __name__ == "__main__":
 

@@ -83,7 +83,7 @@ if __name__ == "__main__":
     # callbacks = [SaveViz(dirpath=EXPERIMENT_PATH / args.dataset / "visualization" / f"version_{version}",
     #                     every_n_test_steps=500)]
 
-    # callbacks = [SaveInference(dirpath="/mnt/personal/sebekpe1/MF_output_new")]
+    callbacks = [SaveInference(dirpath="/mnt/personal/sebekpe1/MF_output_with_classes")]
 
     loggers = [TensorBoardLogger(save_dir=EXPERIMENT_PATH, name=f"{args.dataset}/lightning_logs",
                                  log_graph=True, version=version),
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     # trainer with no validation loop
     trainer = pl.Trainer(limit_val_batches=0, num_sanity_val_steps=0, devices=1, accelerator=args.accelerator,
                          enable_checkpointing=True, fast_dev_run=args.fast_dev_run, max_epochs=1,
-                         logger=loggers) #, callbacks=callbacks)
+                         logger=loggers, callbacks=callbacks)
 
     # breakpoint()
     import torch

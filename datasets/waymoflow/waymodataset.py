@@ -11,12 +11,14 @@ class WaymoDataset(BaseDataset):
                  point_cloud_transform=None,
                  drop_invalid_point_function=None,
                  n_points=None,
-                 apply_pillarization=True):
+                 apply_pillarization=True,
+                 point_features=3):
         super().__init__(data_path=data_path,
                          point_cloud_transform=point_cloud_transform,
                          drop_invalid_point_function=drop_invalid_point_function,
                          n_points=n_points,
-                         apply_pillarization=apply_pillarization)
+                         apply_pillarization=apply_pillarization,
+                         point_features=point_features)
 
         # Config parameters
         metadata_path = os.path.join(data_path, 'metadata')

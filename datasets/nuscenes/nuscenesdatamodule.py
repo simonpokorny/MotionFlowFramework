@@ -26,7 +26,7 @@ class NuScenesDataModule(BaseDataModule):
                  n_points=None,
                  apply_pillarization=True,
                  shuffle_train=True,
-                 point_features=6):
+                 point_features=3):
         """
         This class defines a PyTorch Lightning DataModule that loads and preprocesses data from a specified dataset
         directory using the provided arguments. For correct using, it is neccesery to implement a class dataset for
@@ -61,12 +61,14 @@ class NuScenesDataModule(BaseDataModule):
                          z_min=z_min,
                          z_max=z_max,
                          n_pillars_x=n_pillars_x,
+                         n_pillars_y=n_pillars_y,
                          batch_size=batch_size,
                          has_test=has_test,
                          num_workers=num_workers,
                          n_points=n_points,
                          apply_pillarization=apply_pillarization,
-                         shuffle_train=shuffle_train)
+                         shuffle_train=shuffle_train,
+                         point_features=point_features)
 
 
 if __name__ == "__main__":

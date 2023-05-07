@@ -30,7 +30,7 @@ python -u test.py \
   --data_path /home/pokorsi1/data/waymo_flow/preprocess \
   --dataset waymo \
   --dataset_trained_on waymo \
-  --resume_from_checkpoint /home/pokorsi1/motion_learning/models/experiments/waymo_seq/checkpoints/version_3/epoch=0-step=26000.ckpt
+  --resume_from_checkpoint /home/pokorsi1/motion_learning/models/experiments/waymo_seq/checkpoints/version_4/epoch=0-step=3000.ckpt
 
 
 

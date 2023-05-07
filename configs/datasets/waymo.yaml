@@ -2,7 +2,7 @@ data:
   waymo:
     n_pillars_x: 640
     n_pillars_y: 640
-    point_features: 8 # maximum 8
+    point_features: 3 # maximum 5
     x_min: -35
     x_max: 35
     y_min: -35

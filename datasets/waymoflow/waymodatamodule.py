@@ -30,13 +30,14 @@ class WaymoDataModule(pl.LightningDataModule):
                  n_points=None,
                  apply_pillarization=True,
                  shuffle_train=True,
-                 point_features=8):
+                 point_features=3):
         super(WaymoDataModule, self).__init__()
         self._dataset_directory = Path(dataset_directory)
         self._batch_size = batch_size
         self._train_ = None
         self._val_ = None
         self._test_ = None
+        self._point_features = point_features
         self._shuffle_train = shuffle_train
         self.apply_pillarization = apply_pillarization
 
@@ -78,7 +79,9 @@ class WaymoDataModule(pl.LightningDataModule):
                                     point_cloud_transform=self._pillarization_transform,
                                     drop_invalid_point_function=self._drop_points_function,
                                     n_points=self._n_points,
-                                    apply_pillarization=self.apply_pillarization)
+                                    apply_pillarization=self.apply_pillarization,
+                                    point_features=self._point_features)
+
         #self._val_ = WaymoDataset(self._dataset_directory.joinpath("valid"),
         #                          point_cloud_transform=self._pillarization_transform,
         #                          drop_invalid_point_function=self._drop_points_function,
@@ -90,8 +93,9 @@ class WaymoDataModule(pl.LightningDataModule):
                                        point_cloud_transform=self._pillarization_transform,
                                        drop_invalid_point_function=self._drop_points_function,
                                        n_points=self._n_points,
-                                       apply_pillarization=self.apply_pillarization
-                                       )
+                                       apply_pillarization=self.apply_pillarization,
+                                       point_features=self._point_features)
+
 
     def train_dataloader(self) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
         """

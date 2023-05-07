@@ -49,6 +49,11 @@ class PillarFeatureNetScatter(torch.nn.Module):
         # We want to scatter into a n_pillars_x and n_pillars_y grid
         # Thus we should allocate a tensor of the desired shape (batch_size, n_pillars_x, n_pillars_y, 64)
 
+        # The grid indices are (batch_size, max_points) long. But we need them as
+        # (batch_size, max_points, feature_dims) to work. Features are in all necessary cases 64.
+        # Expand does only create multiple views on the same datapoint and not allocate extra memory
+        indices = indices.unsqueeze(-1).expand(-1, -1, 64)
+
         # Init the matrix to only zeros
         # Construct the desired tensor
         grid = torch.zeros((x.size(0), self.n_pillars_x * self.n_pillars_y, x.size(2)), device=x.device, dtype=x.dtype)

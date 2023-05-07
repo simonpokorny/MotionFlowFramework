@@ -21,7 +21,7 @@ def NN_loss(x, y, weights=None, reduction='mean'):
 
     nearest_to_y = x_nn[1]
 
-    corespond_y = torch.index_select(y,1, x_nn[1][0, :, 0])
+    #corespond_y = torch.index_select(y,1, x_nn[1][0, :, 0])
 
 
     ### MASKING ####
@@ -69,7 +69,7 @@ def NN_loss(x, y, weights=None, reduction='mean'):
         raise NotImplementedError
 
     # breakpoint()
-    return nn_loss, nearest_to_y
+    return nn_loss
 
 
 def rigid_cycle_loss(p_i, fw_trans, bw_trans, reduction='mean'):
@@ -124,7 +124,8 @@ def smoothness_loss(p_i, est_flow, K, reduction='mean'):
     nn_indices = nn.idx[..., 1:]
 
     flow_nn = est_flow[torch.arange(est_flow.shape[0]), nn_indices, :]
-    loss = torch.sum(torch.square(flow_nn - est_flow.unsqueeze(-2)), -1).mean(dim=-1)
+    #loss = torch.sum(torch.square(flow_nn - est_flow.unsqueeze(-2)), -1).mean(dim=-1)
+    loss = (flow_nn - est_flow.unsqueeze(-2)).square().sum(2).sum(2) / K
 
     if reduction == 'mean':
         loss = loss.mean()
